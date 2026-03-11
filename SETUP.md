@@ -153,12 +153,8 @@ gh repo create inboxpilot --public --source=. --push
 Add your Vercel URL to Google Cloud OAuth authorized redirect URIs:
 
 ```
-https://your-app.vercel.app/callback
+https://inboxpilot-azure.vercel.app.app/callback
 ```
-
-### Background sync
-
-The cron job is configured in `vercel.json` and runs automatically every 15 minutes on Vercel. It syncs new emails and categorizes uncategorized ones for all active users.
 
 ---
 
