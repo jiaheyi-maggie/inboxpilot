@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Inbox, Settings, LogOut } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -24,6 +24,22 @@ export function DashboardClient({
 }: DashboardClientProps) {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
+  const autoSyncTriggered = useRef(false);
+
+  // Auto-sync on mount if last sync was >5 min ago (or never synced)
+  useEffect(() => {
+    if (autoSyncTriggered.current || !account?.sync_enabled) return;
+    const STALE_MS = 5 * 60 * 1000; // 5 minutes
+    const lastSyncTime = account?.last_sync_at
+      ? new Date(account.last_sync_at).getTime()
+      : 0;
+    if (Date.now() - lastSyncTime > STALE_MS) {
+      autoSyncTriggered.current = true;
+      fetch('/api/sync', { method: 'POST' })
+        .then(() => router.refresh())
+        .catch(() => {}); // silent — user can manually retry
+    }
+  }, [account, router]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
