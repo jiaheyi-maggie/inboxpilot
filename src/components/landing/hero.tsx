@@ -101,6 +101,13 @@ export function LandingHero() {
           />
         </div>
       </section>
+
+      {/* Footer */}
+      <footer className="px-6 py-4 border-t border-slate-100 text-center text-xs text-slate-400 flex items-center justify-center gap-3">
+        <a href="/privacy" className="hover:text-slate-600">Privacy Policy</a>
+        <span>·</span>
+        <a href="/terms" className="hover:text-slate-600">Terms of Service</a>
+      </footer>
     </div>
   );
 }

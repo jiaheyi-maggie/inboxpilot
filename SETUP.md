@@ -153,7 +153,7 @@ gh repo create inboxpilot --public --source=. --push
 Add your Vercel URL to Google Cloud OAuth authorized redirect URIs:
 
 ```
-https://inboxpilot-azure.vercel.app.app/callback
+https://inboxpilot-azure.vercel.app/callback
 ```
 
 ---
@@ -167,3 +167,6 @@ https://inboxpilot-azure.vercel.app.app/callback
 | Emails sync but no categories appear | Check that `ANTHROPIC_API_KEY` is set and valid |
 | Cron job not running | Vercel cron requires Pro plan. For Hobby plan, trigger sync manually via the UI |
 | Build fails locally | Run `npm install` again, ensure Node 18+ |
+
+
+https://sipldbbisqmlywssunhv.supabase.co/auth/v1/callback
