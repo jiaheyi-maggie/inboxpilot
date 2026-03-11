@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Mail } from 'lucide-react';
+import { CategoryActions } from './category-actions';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingLevel, DimensionKey } from '@/types';
 
 interface TreeNodeProps {
@@ -15,6 +16,7 @@ interface TreeNodeProps {
   levels: GroupingLevel[];
   onSelectEmails: (emails: EmailWithCategory[], path: string) => void;
   selectedPath: string | null;
+  onTreeChanged?: () => void;
 }
 
 export function TreeNode({
@@ -28,6 +30,7 @@ export function TreeNode({
   levels,
   onSelectEmails,
   selectedPath,
+  onTreeChanged,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeNodeType[]>([]);
@@ -119,6 +122,11 @@ export function TreeNode({
         )}
         <span className="flex-1 truncate font-medium">{displayLabel}</span>
         <span className="text-xs text-slate-400 tabular-nums">{count}</span>
+        {dimension === 'category' && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <CategoryActions category={label} onActionComplete={onTreeChanged} />
+          </span>
+        )}
       </button>
 
       {expanded && children.length > 0 && (
@@ -136,6 +144,7 @@ export function TreeNode({
               levels={levels}
               onSelectEmails={onSelectEmails}
               selectedPath={selectedPath}
+              onTreeChanged={onTreeChanged}
             />
           ))}
         </div>

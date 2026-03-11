@@ -21,10 +21,13 @@ export default async function DashboardPage() {
     .limit(1)
     .single();
 
+  // No config yet — send to setup wizard
+  if (!config) redirect('/setup');
+
   // Get Gmail account status
   const { data: account } = await serviceClient
     .from('gmail_accounts')
-    .select('id, email, last_sync_at, sync_enabled')
+    .select('id, email, last_sync_at, sync_enabled, granted_scope')
     .eq('user_id', user.id)
     .limit(1)
     .single();

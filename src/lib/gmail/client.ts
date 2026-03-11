@@ -74,3 +74,81 @@ export function extractDate(headers: { name: string; value: string }[]) {
     return new Date().toISOString();
   }
 }
+
+// --- Gmail Write Operations (require gmail.modify scope) ---
+
+export async function markAsRead(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { removeLabelIds: ['UNREAD'] },
+  });
+}
+
+export async function markAsUnread(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { addLabelIds: ['UNREAD'] },
+  });
+}
+
+export async function trashEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.trash({ userId: 'me', id: gmailMessageId });
+}
+
+export async function trashEmails(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.trash({ userId: 'me', id })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { trashed: gmailMessageIds.length - failed, failed };
+}
+
+export async function archiveEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { removeLabelIds: ['INBOX'] },
+  });
+}
+
+export async function archiveEmails(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['INBOX'] },
+      })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { archived: gmailMessageIds.length - failed, failed };
+}
+
+export async function starEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { addLabelIds: ['STARRED'] },
+  });
+}
+
+export async function unstarEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { removeLabelIds: ['STARRED'] },
+  });
+}

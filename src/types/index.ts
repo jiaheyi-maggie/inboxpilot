@@ -8,6 +8,7 @@ export interface GmailAccount {
   history_id: string | null;
   last_sync_at: string | null;
   sync_enabled: boolean;
+  granted_scope: string;
   created_at: string;
 }
 
@@ -23,6 +24,8 @@ export interface Email {
   snippet: string | null;
   received_at: string;
   is_read: boolean;
+  is_starred: boolean;
+  is_categorized: boolean;
   has_attachment: boolean;
   label_ids: string[];
   created_at: string;
@@ -94,3 +97,34 @@ export interface EmailWithCategory extends Email {
   priority: string | null;
   confidence: number | null;
 }
+
+export interface UserPreferences {
+  id: string;
+  user_id: string;
+  auto_categorize_unread: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EmailAction =
+  | 'mark_read'
+  | 'mark_unread'
+  | 'trash'
+  | 'archive'
+  | 'star'
+  | 'unstar';
+
+export const CATEGORIES = [
+  'Work',
+  'Personal',
+  'Finance',
+  'Shopping',
+  'Travel',
+  'Social',
+  'Newsletters',
+  'Notifications',
+  'Promotions',
+  'Other',
+] as const;
+
+export type Category = (typeof CATEGORIES)[number];

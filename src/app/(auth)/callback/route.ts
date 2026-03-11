@@ -28,6 +28,12 @@ export async function GET(request: Request) {
     const serviceClient = createServiceClient();
     const email = user.email ?? user.user_metadata?.email ?? '';
 
+    // Detect granted scope from user metadata
+    const scopes = (user.user_metadata?.provider_scopes as string) ?? '';
+    const grantedScope = scopes.includes('gmail.modify')
+      ? 'gmail.modify'
+      : 'gmail.readonly';
+
     const { error: upsertError } = await serviceClient
       .from('gmail_accounts')
       .upsert(
@@ -41,6 +47,7 @@ export async function GET(request: Request) {
           token_expires_at: new Date(
             Date.now() + (session.expires_in ?? 3600) * 1000
           ).toISOString(),
+          granted_scope: grantedScope,
         },
         { onConflict: 'user_id,email' }
       );
@@ -49,7 +56,7 @@ export async function GET(request: Request) {
       console.error('Failed to store Gmail tokens:', upsertError);
     }
 
-    // Create default grouping config if none exists
+    // Check if first-time user — redirect to setup wizard
     const { data: existingConfig } = await serviceClient
       .from('grouping_configs')
       .select('id')
@@ -59,15 +66,7 @@ export async function GET(request: Request) {
       .single();
 
     if (!existingConfig) {
-      await serviceClient.from('grouping_configs').insert({
-        user_id: user.id,
-        name: 'Default',
-        levels: [
-          { dimension: 'category', label: 'Category' },
-          { dimension: 'sender_domain', label: 'Domain' },
-          { dimension: 'date_month', label: 'Month' },
-        ],
-      });
+      return NextResponse.redirect(`${origin}/setup`);
     }
   }
 

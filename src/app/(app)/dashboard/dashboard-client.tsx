@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Inbox, Settings, LogOut } from 'lucide-react';
+import { Inbox, Settings, LogOut, ShieldAlert } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { EmailTree } from '@/components/dashboard/email-tree';
@@ -11,7 +11,7 @@ import type { GroupingConfig, GmailAccount, SyncJob } from '@/types';
 
 interface DashboardClientProps {
   config: GroupingConfig | null;
-  account: Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled'> | null;
+  account: Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope'> | null;
   lastSync: SyncJob | null;
   userEmail: string;
 }
@@ -105,6 +105,15 @@ export function DashboardClient({
       {account && !account.last_sync_at && (
         <div className="bg-blue-50 border-b border-blue-100 px-4 py-2 text-sm text-blue-700">
           First time? Tap the sync button above to fetch your emails.
+        </div>
+      )}
+
+      {account && account.granted_scope === 'gmail.readonly' && (
+        <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 text-sm text-amber-700 flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 flex-shrink-0" />
+          <span>
+            Limited permissions. Sign out and sign back in to enable email actions (archive, trash, star).
+          </span>
         </div>
       )}
 

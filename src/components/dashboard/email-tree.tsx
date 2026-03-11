@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
+import { UnreadSection } from './unread-section';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig } from '@/types';
 import { Loader2 } from 'lucide-react';
 
@@ -47,22 +48,16 @@ export function EmailTree({ config }: EmailTreeProps) {
     []
   );
 
+  // Refresh tree when emails change (read, categorized, trashed, etc.)
+  const handleEmailsChanged = useCallback(() => {
+    fetchNodes();
+  }, [fetchNodes]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
         <span className="ml-2 text-sm text-slate-500">Loading your inbox...</span>
-      </div>
-    );
-  }
-
-  if (rootNodes.length === 0) {
-    return (
-      <div className="text-center py-12 text-slate-500">
-        <p className="text-lg font-medium">No emails yet</p>
-        <p className="text-sm mt-1">
-          Tap the sync button to fetch your emails
-        </p>
       </div>
     );
   }
@@ -75,23 +70,36 @@ export function EmailTree({ config }: EmailTreeProps) {
           selectedPath ? 'hidden lg:block' : ''
         } lg:w-80 lg:flex-shrink-0 overflow-y-auto border-b lg:border-b-0 lg:border-r border-slate-200`}
       >
-        <div className="p-3 space-y-0.5">
-          {rootNodes.map((node) => (
-            <TreeNode
-              key={node.group_key}
-              label={node.group_key}
-              count={node.count}
-              dimension={config.levels[0].dimension}
-              level={0}
-              path={[]}
-              configId={config.id}
-              totalLevels={config.levels.length}
-              levels={config.levels}
-              onSelectEmails={handleSelectEmails}
-              selectedPath={selectedPath}
-            />
-          ))}
-        </div>
+        {/* Unread section pinned at top */}
+        <UnreadSection onEmailRead={handleEmailsChanged} />
+
+        {rootNodes.length === 0 ? (
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-lg font-medium">No emails yet</p>
+            <p className="text-sm mt-1">
+              Tap the sync button to fetch your emails
+            </p>
+          </div>
+        ) : (
+          <div className="p-3 space-y-0.5">
+            {rootNodes.map((node) => (
+              <TreeNode
+                key={node.group_key}
+                label={node.group_key}
+                count={node.count}
+                dimension={config.levels[0].dimension}
+                level={0}
+                path={[]}
+                configId={config.id}
+                totalLevels={config.levels.length}
+                levels={config.levels}
+                onSelectEmails={handleSelectEmails}
+                selectedPath={selectedPath}
+                onTreeChanged={handleEmailsChanged}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Email list */}
@@ -104,7 +112,7 @@ export function EmailTree({ config }: EmailTreeProps) {
             >
               &larr; Back to tree
             </button>
-            <EmailList emails={selectedEmails} />
+            <EmailList emails={selectedEmails} onEmailUpdated={handleEmailsChanged} />
           </>
         ) : (
           <div className="flex items-center justify-center h-full text-slate-400 text-sm">

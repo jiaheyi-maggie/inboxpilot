@@ -32,17 +32,33 @@ export async function syncEmails(account: GmailAccount): Promise<{
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken && messageIds.length < MAX_MESSAGES_PER_SYNC);
 
-  // Filter out already-synced messages
-  const { data: existingEmails } = await serviceClient
-    .from('emails')
-    .select('gmail_message_id')
-    .eq('gmail_account_id', account.id)
-    .in('gmail_message_id', messageIds);
+  console.log(`[sync] Listed ${messageIds.length} message IDs for ${account.email}`);
 
-  const existingIds = new Set(
-    (existingEmails ?? []).map((e) => e.gmail_message_id)
-  );
+  if (messageIds.length === 0) {
+    // Update last_sync_at even if no messages
+    await serviceClient
+      .from('gmail_accounts')
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq('id', account.id);
+    return { fetched: 0, errors: 0 };
+  }
+
+  // Filter out already-synced messages (batch .in() to avoid URL length limits)
+  const existingIds = new Set<string>();
+  for (let i = 0; i < messageIds.length; i += 200) {
+    const chunk = messageIds.slice(i, i + 200);
+    const { data: existingEmails } = await serviceClient
+      .from('emails')
+      .select('gmail_message_id')
+      .eq('gmail_account_id', account.id)
+      .in('gmail_message_id', chunk);
+    for (const e of existingEmails ?? []) {
+      existingIds.add(e.gmail_message_id);
+    }
+  }
+
   const newMessageIds = messageIds.filter((id) => !existingIds.has(id));
+  console.log(`[sync] ${existingIds.size} already synced, ${newMessageIds.length} new for ${account.email}`);
 
   // Fetch and store new messages in batches
   for (let i = 0; i < newMessageIds.length; i += BATCH_SIZE) {
@@ -109,6 +125,7 @@ function messageToRow(
 
   const labelIds = msg.labelIds ?? [];
   const isRead = !labelIds.includes('UNREAD');
+  const isStarred = labelIds.includes('STARRED');
   const hasAttachment =
     msg.payload?.parts?.some(
       (p) => p.filename && p.filename.length > 0
@@ -125,6 +142,7 @@ function messageToRow(
     snippet: msg.snippet ?? null,
     received_at: receivedAt,
     is_read: isRead,
+    is_starred: isStarred,
     has_attachment: hasAttachment,
     label_ids: labelIds,
   };

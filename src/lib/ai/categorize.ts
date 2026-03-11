@@ -131,6 +131,13 @@ ${emailSummaries}`,
         errors += batch.length;
       } else {
         categorized += rows.length;
+
+        // Mark emails as categorized
+        const categorizedIds = rows.map((r) => r.email_id);
+        await serviceClient
+          .from('emails')
+          .update({ is_categorized: true })
+          .in('id', categorizedIds);
       }
     } catch (err) {
       console.error('Claude categorization error:', err);
@@ -143,21 +150,25 @@ ${emailSummaries}`,
 
 export async function getUncategorizedEmails(
   gmailAccountId: string,
-  limit = 100
+  opts: { includeUnread?: boolean; limit?: number } = {}
 ): Promise<Email[]> {
+  const { includeUnread = false, limit = 100 } = opts;
   const serviceClient = createServiceClient();
 
-  const { data, error } = await serviceClient
+  let query = serviceClient
     .from('emails')
     .select('*')
     .eq('gmail_account_id', gmailAccountId)
-    .not(
-      'id',
-      'in',
-      `(select email_id from email_categories)`
-    )
+    .eq('is_categorized', false)
     .order('received_at', { ascending: false })
     .limit(limit);
+
+  // By default, only categorize read emails (skip unread)
+  if (!includeUnread) {
+    query = query.eq('is_read', true);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Failed to fetch uncategorized emails:', error);

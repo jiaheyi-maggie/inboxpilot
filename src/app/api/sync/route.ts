@@ -45,11 +45,21 @@ export async function POST() {
     .single();
 
   try {
-    // Sync emails from Gmail
+    console.log(`[sync-api] Starting sync for ${gmailAccount.email}, token_expires: ${gmailAccount.token_expires_at}`);
     const syncResult = await syncEmails(gmailAccount);
+    console.log(`[sync-api] Sync done: fetched=${syncResult.fetched}, errors=${syncResult.errors}`);
 
-    // Categorize uncategorized emails
-    const uncategorized = await getUncategorizedEmails(gmailAccount.id);
+    // Check user preference for auto-categorize behavior
+    const { data: prefs } = await serviceClient
+      .from('user_preferences')
+      .select('auto_categorize_unread')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single();
+
+    const includeUnread = prefs?.auto_categorize_unread ?? false;
+    const uncategorized = await getUncategorizedEmails(gmailAccount.id, { includeUnread });
+    console.log(`[sync-api] Uncategorized (includeUnread=${includeUnread}): ${uncategorized.length}`);
     let categorizeResult = { categorized: 0, errors: 0 };
 
     if (uncategorized.length > 0) {
@@ -88,8 +98,9 @@ export async function POST() {
         .eq('id', job.id);
     }
 
+    const errMsg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Sync failed' },
+      { error: 'Sync failed', details: errMsg },
       { status: 500 }
     );
   }

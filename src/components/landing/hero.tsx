@@ -15,7 +15,7 @@ export function LandingHero() {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/callback`,
-        scopes: 'https://www.googleapis.com/auth/gmail.readonly',
+        scopes: 'https://www.googleapis.com/auth/gmail.modify',
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -77,7 +77,7 @@ export function LandingHero() {
         </Button>
 
         <p className="text-xs text-slate-400 mt-3">
-          Read-only access. We never modify your emails.
+          Secure access to organize, archive, and manage your inbox.
         </p>
       </main>
 

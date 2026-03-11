@@ -27,7 +27,7 @@ export function SyncStatus() {
       } else {
         setResult({
           success: false,
-          message: data.error || 'Sync failed',
+          message: data.details || data.error || 'Sync failed',
         });
       }
     } catch {
@@ -53,7 +53,7 @@ export function SyncStatus() {
           ) : (
             <AlertCircle className="h-3 w-3" />
           )}
-          <span className="hidden sm:inline">{result.message}</span>
+          <span className="text-xs max-w-[200px] truncate">{result.message}</span>
         </span>
       )}
       <Button

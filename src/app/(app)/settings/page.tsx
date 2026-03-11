@@ -20,6 +20,14 @@ export default async function SettingsPage() {
     .limit(1)
     .single();
 
+  // Get user preferences
+  const { data: prefs } = await serviceClient
+    .from('user_preferences')
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(1)
+    .single();
+
   const defaultLevels = [
     { dimension: 'category' as const, label: 'Category' },
     { dimension: 'sender_domain' as const, label: 'Domain' },
@@ -31,6 +39,7 @@ export default async function SettingsPage() {
       initialLevels={config?.levels ?? defaultLevels}
       initialDateStart={config?.date_range_start ?? null}
       initialDateEnd={config?.date_range_end ?? null}
+      initialAutoCategorizeUnread={prefs?.auto_categorize_unread ?? false}
     />
   );
 }
