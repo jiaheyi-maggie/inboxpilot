@@ -87,40 +87,46 @@ function EmailRow({
     ? format(new Date(email.received_at), 'MMM d')
     : '';
 
+  const [error, setError] = useState<string | null>(null);
+
   const executeAction = useCallback(
     async (action: EmailAction) => {
       setLoading(true);
       setShowMenu(false);
+      setError(null);
       try {
         const res = await fetch(`/api/emails/${email.id}/actions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action }),
         });
-        if (res.ok) {
-          switch (action) {
-            case 'trash':
-              onRemoved(email.id);
-              break;
-            case 'archive':
-              onRemoved(email.id);
-              break;
-            case 'star':
-              onUpdated(email.id, { is_starred: true });
-              break;
-            case 'unstar':
-              onUpdated(email.id, { is_starred: false });
-              break;
-            case 'mark_read':
-              onUpdated(email.id, { is_read: true });
-              break;
-            case 'mark_unread':
-              onUpdated(email.id, { is_read: false });
-              break;
-          }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? `Action failed (${res.status})`);
+          return;
+        }
+        switch (action) {
+          case 'trash':
+            onRemoved(email.id);
+            break;
+          case 'archive':
+            onRemoved(email.id);
+            break;
+          case 'star':
+            onUpdated(email.id, { is_starred: true });
+            break;
+          case 'unstar':
+            onUpdated(email.id, { is_starred: false });
+            break;
+          case 'mark_read':
+            onUpdated(email.id, { is_read: true });
+            break;
+          case 'mark_unread':
+            onUpdated(email.id, { is_read: false });
+            break;
         }
       } catch {
-        // silent
+        setError('Network error');
       } finally {
         setLoading(false);
       }
@@ -132,17 +138,21 @@ function EmailRow({
     async (category: string) => {
       setShowPicker(false);
       setLoading(true);
+      setError(null);
       try {
         const res = await fetch(`/api/emails/${email.id}/category`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ category }),
         });
-        if (res.ok) {
-          onUpdated(email.id, { category });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? 'Failed to move email');
+          return;
         }
+        onUpdated(email.id, { category });
       } catch {
-        // silent
+        setError('Network error');
       } finally {
         setLoading(false);
       }
@@ -313,6 +323,11 @@ function EmailRow({
                 <span className="text-xs text-slate-400">{email.topic}</span>
               )}
             </div>
+
+            {/* Error feedback */}
+            {error && (
+              <p className="text-xs text-red-500 mt-1">{error}</p>
+            )}
           </div>
         </div>
       </div>

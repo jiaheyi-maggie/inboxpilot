@@ -16,6 +16,7 @@ export function EmailTree({ config }: EmailTreeProps) {
   const [selectedEmails, setSelectedEmails] = useState<EmailWithCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchNodes = useCallback(async () => {
     setLoading(true);
@@ -48,9 +49,10 @@ export function EmailTree({ config }: EmailTreeProps) {
     []
   );
 
-  // Refresh tree when emails change (read, categorized, trashed, etc.)
+  // Refresh tree + unread section when emails change
   const handleEmailsChanged = useCallback(() => {
     fetchNodes();
+    setRefreshKey((k) => k + 1);
   }, [fetchNodes]);
 
   if (loading) {
@@ -71,7 +73,7 @@ export function EmailTree({ config }: EmailTreeProps) {
         } lg:w-80 lg:flex-shrink-0 overflow-y-auto border-b lg:border-b-0 lg:border-r border-slate-200`}
       >
         {/* Unread section pinned at top */}
-        <UnreadSection onEmailRead={handleEmailsChanged} />
+        <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={refreshKey} />
 
         {rootNodes.length === 0 ? (
           <div className="text-center py-12 text-slate-500">

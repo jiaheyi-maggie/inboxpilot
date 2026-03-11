@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   // Find all emails in this category belonging to this user
   const { data: emails, error: fetchError } = await serviceClient
     .from('emails')
-    .select('id, gmail_message_id, email_categories!inner(category)')
+    .select('id, gmail_message_id, label_ids, email_categories!inner(category)')
     .eq('gmail_account_id', gmailAccount.id)
     .eq('email_categories.category', category);
 
@@ -71,14 +71,20 @@ export async function POST(request: NextRequest) {
             { status: 403 }
           );
         }
-        const result = await trashEmails(gmailAccount, gmailMessageIds);
+        const trashResult = await trashEmails(gmailAccount, gmailMessageIds);
         // Delete from DB (cascade deletes email_categories)
-        await serviceClient.from('emails').delete().in('id', emailIds);
+        const { error: deleteError } = await serviceClient
+          .from('emails')
+          .delete()
+          .in('id', emailIds);
+        if (deleteError) {
+          console.error('[category-action] DB delete failed:', deleteError);
+        }
         return NextResponse.json({
           success: true,
           action: 'trash',
-          affected: result.trashed,
-          failed: result.failed,
+          affected: trashResult.trashed,
+          failed: trashResult.failed,
         });
       }
 
@@ -89,12 +95,23 @@ export async function POST(request: NextRequest) {
             { status: 403 }
           );
         }
-        const result = await archiveEmails(gmailAccount, gmailMessageIds);
+        const archiveResult = await archiveEmails(gmailAccount, gmailMessageIds);
+        // Update label_ids in DB — remove INBOX label for each email
+        await Promise.allSettled(
+          emails.map((e) => {
+            const currentLabels = (e.label_ids as string[]) ?? [];
+            const newLabels = currentLabels.filter((l: string) => l !== 'INBOX');
+            return serviceClient
+              .from('emails')
+              .update({ label_ids: newLabels })
+              .eq('id', e.id);
+          })
+        );
         return NextResponse.json({
           success: true,
           action: 'archive',
-          affected: result.archived,
-          failed: result.failed,
+          affected: archiveResult.archived,
+          failed: archiveResult.failed,
         });
       }
 

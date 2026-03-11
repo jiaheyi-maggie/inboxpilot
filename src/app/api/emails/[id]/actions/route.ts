@@ -64,65 +64,76 @@ export async function POST(
     switch (action) {
       case 'mark_read': {
         await markAsRead(accountData, gmailMessageId);
-        await serviceClient
+        const { error: readErr } = await serviceClient
           .from('emails')
           .update({ is_read: true })
           .eq('id', emailId);
+        if (readErr) console.error('[email-action] DB update is_read failed:', readErr);
 
-        // Trigger categorization for this email
-        const emailForCat = { ...email, gmail_accounts: undefined } as unknown as Email;
-        const catResult = await categorizeEmails([emailForCat]);
+        // Only categorize if not already categorized
+        let didCategorize = false;
+        if (!email.is_categorized) {
+          const emailForCat = { ...email, gmail_accounts: undefined } as unknown as Email;
+          const catResult = await categorizeEmails([emailForCat]);
+          didCategorize = catResult.categorized > 0;
+        }
 
         return NextResponse.json({
           success: true,
           action: 'mark_read',
-          categorized: catResult.categorized > 0,
+          categorized: didCategorize,
         });
       }
 
       case 'mark_unread': {
         await markAsUnread(accountData, gmailMessageId);
-        await serviceClient
+        const { error: unreadErr } = await serviceClient
           .from('emails')
           .update({ is_read: false })
           .eq('id', emailId);
+        if (unreadErr) console.error('[email-action] DB update is_read failed:', unreadErr);
         return NextResponse.json({ success: true, action: 'mark_unread' });
       }
 
       case 'trash': {
         await trashEmail(accountData, gmailMessageId);
-        // Delete from DB (cascade deletes email_categories)
-        await serviceClient.from('emails').delete().eq('id', emailId);
+        const { error: trashErr } = await serviceClient
+          .from('emails')
+          .delete()
+          .eq('id', emailId);
+        if (trashErr) console.error('[email-action] DB delete failed:', trashErr);
         return NextResponse.json({ success: true, action: 'trash', deleted: true });
       }
 
       case 'archive': {
         await archiveEmail(accountData, gmailMessageId);
-        // Remove INBOX from label_ids
         const currentLabels = (email.label_ids as string[]) ?? [];
         const newLabels = currentLabels.filter((l: string) => l !== 'INBOX');
-        await serviceClient
+        const { error: archiveErr } = await serviceClient
           .from('emails')
           .update({ label_ids: newLabels })
           .eq('id', emailId);
+        if (archiveErr) console.error('[email-action] DB update label_ids failed:', archiveErr);
         return NextResponse.json({ success: true, action: 'archive' });
       }
 
       case 'star': {
         await starEmail(accountData, gmailMessageId);
-        await serviceClient
+        const { error: starErr } = await serviceClient
           .from('emails')
           .update({ is_starred: true })
           .eq('id', emailId);
+        if (starErr) console.error('[email-action] DB update is_starred failed:', starErr);
         return NextResponse.json({ success: true, action: 'star' });
       }
 
       case 'unstar': {
         await unstarEmail(accountData, gmailMessageId);
-        await serviceClient
+        const { error: unstarErr } = await serviceClient
           .from('emails')
           .update({ is_starred: false })
           .eq('id', emailId);
+        if (unstarErr) console.error('[email-action] DB update is_starred failed:', unstarErr);
         return NextResponse.json({ success: true, action: 'unstar' });
       }
 

@@ -20,12 +20,15 @@ export async function getGmailClient(account: GmailAccount) {
     oauth2Client.setCredentials({ refresh_token: refreshToken });
 
     const { credentials } = await oauth2Client.refreshAccessToken();
-    accessToken = credentials.access_token!;
+    if (!credentials.access_token) {
+      throw new Error('Token refresh returned no access token');
+    }
+    accessToken = credentials.access_token;
 
     // Store refreshed token
     const { encrypt: enc } = await import('@/lib/crypto');
     const serviceClient = createServiceClient();
-    await serviceClient
+    const { error: refreshUpdateError } = await serviceClient
       .from('gmail_accounts')
       .update({
         access_token_encrypted: enc(accessToken),
@@ -34,6 +37,9 @@ export async function getGmailClient(account: GmailAccount) {
           : new Date(Date.now() + 3600 * 1000).toISOString(),
       })
       .eq('id', account.id);
+    if (refreshUpdateError) {
+      console.error('[gmail] Failed to store refreshed token:', refreshUpdateError);
+    }
   }
 
   oauth2Client.setCredentials({ access_token: accessToken });
