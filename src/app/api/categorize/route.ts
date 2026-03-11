@@ -28,7 +28,9 @@ export async function POST() {
     );
   }
 
-  const uncategorized = await getUncategorizedEmails(account.id);
+  // Explicit categorize action should always include unread emails —
+  // this is called by the "Categorize All" button in the unread section
+  const uncategorized = await getUncategorizedEmails(account.id, { includeUnread: true });
 
   if (uncategorized.length === 0) {
     return NextResponse.json({

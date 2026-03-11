@@ -9,14 +9,16 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 
 interface EmailTreeProps {
   config: GroupingConfig;
+  /** Increment to trigger a full re-fetch (e.g. after sync completes) */
+  refreshKey?: number;
 }
 
-export function EmailTree({ config }: EmailTreeProps) {
+export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   const [rootNodes, setRootNodes] = useState<TreeNodeType[]>([]);
   const [selectedEmails, setSelectedEmails] = useState<EmailWithCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [unreadRefreshKey, setUnreadRefreshKey] = useState(0);
   const [fetchError, setFetchError] = useState(false);
 
   const fetchNodes = useCallback(async () => {
@@ -46,7 +48,7 @@ export function EmailTree({ config }: EmailTreeProps) {
 
   useEffect(() => {
     fetchNodes();
-  }, [fetchNodes]);
+  }, [fetchNodes, refreshKey]);
 
   const handleSelectEmails = useCallback(
     (emails: EmailWithCategory[], path: string) => {
@@ -59,7 +61,7 @@ export function EmailTree({ config }: EmailTreeProps) {
   // Refresh tree + unread section when emails change
   const handleEmailsChanged = useCallback(() => {
     fetchNodes();
-    setRefreshKey((k) => k + 1);
+    setUnreadRefreshKey((k) => k + 1);
   }, [fetchNodes]);
 
   if (loading) {
@@ -80,7 +82,7 @@ export function EmailTree({ config }: EmailTreeProps) {
         } lg:w-80 lg:flex-shrink-0 overflow-y-auto border-b lg:border-b-0 lg:border-r border-slate-200`}
       >
         {/* Unread section pinned at top */}
-        <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={refreshKey} />
+        <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={(refreshKey ?? 0) + unreadRefreshKey} />
 
         {fetchError ? (
           <div className="text-center py-12 text-slate-500">

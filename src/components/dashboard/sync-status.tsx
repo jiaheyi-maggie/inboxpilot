@@ -4,7 +4,11 @@ import { useCallback, useState } from 'react';
 import { RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export function SyncStatus() {
+interface SyncStatusProps {
+  onSyncComplete?: () => void;
+}
+
+export function SyncStatus({ onSyncComplete }: SyncStatusProps) {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
@@ -24,6 +28,8 @@ export function SyncStatus() {
           success: true,
           message: `Synced ${data.fetched} emails, categorized ${data.categorized}`,
         });
+        // Notify parent to refresh tree + unread section
+        onSyncComplete?.();
       } else {
         setResult({
           success: false,
@@ -38,7 +44,7 @@ export function SyncStatus() {
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [onSyncComplete]);
 
   return (
     <div className="flex items-center gap-2">

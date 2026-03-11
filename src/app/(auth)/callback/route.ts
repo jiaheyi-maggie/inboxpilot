@@ -47,23 +47,26 @@ export async function GET(request: Request) {
       // Fall back to gmail.readonly if tokeninfo check fails
     }
 
+    // Build upsert payload — only include refresh_token if Google actually
+    // provided one (Google only sends refresh_token on first authorization,
+    // not on subsequent re-auths). Setting it to null would wipe the stored token.
+    const upsertPayload: Record<string, unknown> = {
+      user_id: user.id,
+      email,
+      access_token_encrypted: encrypt(providerToken),
+      token_expires_at: new Date(
+        Date.now() + (session.expires_in ?? 3600) * 1000
+      ).toISOString(),
+      granted_scope: grantedScope,
+    };
+
+    if (providerRefreshToken) {
+      upsertPayload.refresh_token_encrypted = encrypt(providerRefreshToken);
+    }
+
     const { error: upsertError } = await serviceClient
       .from('gmail_accounts')
-      .upsert(
-        {
-          user_id: user.id,
-          email,
-          access_token_encrypted: encrypt(providerToken),
-          refresh_token_encrypted: providerRefreshToken
-            ? encrypt(providerRefreshToken)
-            : null,
-          token_expires_at: new Date(
-            Date.now() + (session.expires_in ?? 3600) * 1000
-          ).toISOString(),
-          granted_scope: grantedScope,
-        },
-        { onConflict: 'user_id,email' }
-      );
+      .upsert(upsertPayload, { onConflict: 'user_id,email' });
 
     if (upsertError) {
       console.error('Failed to store Gmail tokens:', upsertError);

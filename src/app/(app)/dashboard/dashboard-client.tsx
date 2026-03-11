@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Inbox, Settings, LogOut, ShieldAlert } from 'lucide-react';
+import Image from 'next/image';
+import { Settings, LogOut, ShieldAlert } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { EmailTree } from '@/components/dashboard/email-tree';
@@ -26,6 +27,14 @@ export function DashboardClient({
   const [showMenu, setShowMenu] = useState(false);
   const autoSyncTriggered = useRef(false);
 
+  // Key to force re-fetch of EmailTree when sync completes
+  const [treeRefreshKey, setTreeRefreshKey] = useState(0);
+
+  const handleSyncComplete = useCallback(() => {
+    setTreeRefreshKey((k) => k + 1);
+    router.refresh(); // also re-fetch server component data
+  }, [router]);
+
   // Auto-sync on mount if last sync was >5 min ago (or never synced)
   useEffect(() => {
     if (autoSyncTriggered.current || !account?.sync_enabled) return;
@@ -36,10 +45,10 @@ export function DashboardClient({
     if (Date.now() - lastSyncTime > STALE_MS) {
       autoSyncTriggered.current = true;
       fetch('/api/sync', { method: 'POST' })
-        .then(() => router.refresh())
+        .then(() => handleSyncComplete())
         .catch(() => {}); // silent — user can manually retry
     }
-  }, [account, router]);
+  }, [account, handleSyncComplete]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
@@ -54,12 +63,12 @@ export function DashboardClient({
       {/* Top bar */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Inbox className="h-5 w-5 text-blue-600" />
+          <Image src="/logo.png" alt="InboxPilot" width={24} height={24} className="rounded" />
           <span className="font-bold text-slate-900">InboxPilot</span>
         </div>
 
         <div className="flex items-center gap-1">
-          <SyncStatus />
+          <SyncStatus onSyncComplete={handleSyncComplete} />
           <Button
             variant="ghost"
             size="icon"
@@ -122,7 +131,7 @@ export function DashboardClient({
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
         {config ? (
-          <EmailTree config={config} />
+          <EmailTree config={config} refreshKey={treeRefreshKey} />
         ) : (
           <div className="flex items-center justify-center h-full text-slate-500 text-sm px-4 text-center">
             <div>

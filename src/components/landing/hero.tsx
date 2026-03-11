@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Inbox, FolderTree, Sparkles, Clock } from 'lucide-react';
+import Image from 'next/image';
+import { FolderTree, Sparkles, Clock } from 'lucide-react';
 
 export function LandingHero() {
   const [loading, setLoading] = useState(false);
@@ -29,7 +30,7 @@ export function LandingHero() {
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Inbox className="h-5 w-5 text-blue-600" />
+          <Image src="/logo.png" alt="InboxPilot" width={24} height={24} className="rounded" />
           <span className="font-bold text-slate-900">InboxPilot</span>
         </div>
       </header>
