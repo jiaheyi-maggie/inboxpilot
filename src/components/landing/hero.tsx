@@ -29,8 +29,8 @@ export function LandingHero() {
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Inbox className="h-6 w-6 text-blue-600" />
-          <span className="font-bold text-lg text-slate-900">InboxPilot</span>
+          <Inbox className="h-5 w-5 text-blue-600" />
+          <span className="font-bold text-slate-900">InboxPilot</span>
         </div>
       </header>
 

@@ -44,8 +44,10 @@ export function DashboardClient({
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push('/');
-  }, [router]);
+    // Hard navigation to bypass Next.js router cache and let middleware
+    // re-evaluate the (now cleared) session cookies
+    window.location.href = '/';
+  }, []);
 
   return (
     <div className="h-screen flex flex-col">

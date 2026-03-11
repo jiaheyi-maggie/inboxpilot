@@ -71,33 +71,28 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
   const handleCategorizeAll = useCallback(async () => {
     setCategorizingAll(true);
     setError(null);
-    let failCount = 0;
-    const snapshot = [...emails];
     try {
-      for (const email of snapshot) {
-        const res = await fetch(`/api/emails/${email.id}/actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'mark_read' }),
-        });
-        if (res.ok) {
-          setEmails((prev) => prev.filter((e) => e.id !== email.id));
-        } else {
-          failCount++;
-        }
+      // Run AI categorization on all uncategorized emails
+      const res = await fetch('/api/categorize', { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? 'Categorization failed');
+        return;
       }
-      if (failCount > 0) {
-        setError(`${failCount} email(s) failed to categorize`);
+      const result = await res.json();
+      if (result.errors > 0) {
+        setError(`Categorized ${result.categorized}, but ${result.errors} failed`);
       }
+      // Refresh unread list (categorized emails are no longer uncategorized)
+      await fetchUnread();
       onEmailRead?.();
     } catch {
       setError('Network error during categorization');
-      // Re-fetch to get accurate state
       fetchUnread();
     } finally {
       setCategorizingAll(false);
     }
-  }, [emails, onEmailRead, fetchUnread]);
+  }, [onEmailRead, fetchUnread]);
 
   if (loading) return null;
   if (emails.length === 0 && !error) return null;
