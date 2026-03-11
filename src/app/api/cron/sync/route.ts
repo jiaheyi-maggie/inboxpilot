@@ -1,0 +1,140 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServiceClient } from '@/lib/supabase/server';
+import { syncEmails } from '@/lib/gmail/sync';
+import { categorizeEmails, getUncategorizedEmails } from '@/lib/ai/categorize';
+import type { GmailAccount } from '@/types';
+
+const MAX_ACCOUNTS_PER_RUN = 5;
+const STALE_JOB_MINUTES = 10;
+
+export async function GET(request: NextRequest) {
+  // Verify cron secret
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const serviceClient = createServiceClient();
+  const results: Record<string, unknown>[] = [];
+
+  // Clean up stale running jobs (crashed during previous run)
+  const staleThreshold = new Date(
+    Date.now() - STALE_JOB_MINUTES * 60 * 1000
+  ).toISOString();
+  await serviceClient
+    .from('sync_jobs')
+    .update({
+      status: 'failed',
+      error_message: 'Timed out (stale job)',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('status', 'running')
+    .lt('started_at', staleThreshold);
+
+  // Get active accounts, oldest-synced first
+  const { data: accounts, error } = await serviceClient
+    .from('gmail_accounts')
+    .select('*')
+    .eq('sync_enabled', true)
+    .order('last_sync_at', { ascending: true, nullsFirst: true })
+    .limit(MAX_ACCOUNTS_PER_RUN);
+
+  if (error || !accounts || accounts.length === 0) {
+    return NextResponse.json({
+      message: 'No accounts to sync',
+      results: [],
+    });
+  }
+
+  for (const raw of accounts) {
+    const account = raw as GmailAccount;
+
+    // Skip if there's already a running job
+    const { data: runningJob } = await serviceClient
+      .from('sync_jobs')
+      .select('id')
+      .eq('gmail_account_id', account.id)
+      .eq('status', 'running')
+      .limit(1)
+      .single();
+
+    if (runningJob) {
+      results.push({
+        account: account.email,
+        status: 'skipped',
+        reason: 'Already running',
+      });
+      continue;
+    }
+
+    // Create sync job
+    const { data: job } = await serviceClient
+      .from('sync_jobs')
+      .insert({
+        gmail_account_id: account.id,
+        status: 'running',
+      })
+      .select()
+      .single();
+
+    try {
+      const syncResult = await syncEmails(account);
+
+      const uncategorized = await getUncategorizedEmails(account.id);
+      let categorizeResult = { categorized: 0, errors: 0 };
+      if (uncategorized.length > 0) {
+        categorizeResult = await categorizeEmails(uncategorized);
+      }
+
+      if (job) {
+        await serviceClient
+          .from('sync_jobs')
+          .update({
+            status: 'completed',
+            emails_fetched: syncResult.fetched,
+            emails_categorized: categorizeResult.categorized,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', job.id);
+      }
+
+      results.push({
+        account: account.email,
+        status: 'completed',
+        fetched: syncResult.fetched,
+        categorized: categorizeResult.categorized,
+      });
+    } catch (err) {
+      console.error(`Sync failed for ${account.email}:`, err);
+
+      if (job) {
+        await serviceClient
+          .from('sync_jobs')
+          .update({
+            status: 'failed',
+            error_message:
+              err instanceof Error ? err.message : 'Unknown error',
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', job.id);
+      }
+
+      // If token error, disable sync
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('invalid_grant') || msg.includes('Token has been')) {
+        await serviceClient
+          .from('gmail_accounts')
+          .update({ sync_enabled: false })
+          .eq('id', account.id);
+      }
+
+      results.push({
+        account: account.email,
+        status: 'failed',
+        error: msg,
+      });
+    }
+  }
+
+  return NextResponse.json({ results });
+}
