@@ -104,8 +104,8 @@ Fill in each value:
 | Variable | Where to find it |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase dashboard → Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same page → `anon` `public` key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Same page → `service_role` key (keep secret!) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Same page → Publishable API key (starts with `sb_publishable_`) |
+| `SUPABASE_SECRET_KEY` | Same page → Secret API key (starts with `sb_secret_`, keep secret!) |
 | `GOOGLE_CLIENT_ID` | Google Cloud Console → Credentials |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud Console → Credentials |
 | `ANTHROPIC_API_KEY` | Anthropic Console → API Keys |
