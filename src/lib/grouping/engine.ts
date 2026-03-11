@@ -90,9 +90,13 @@ export function buildGroupQuery(params: GroupQueryParams): {
     parentFilters,
     dateRangeStart,
     dateRangeEnd,
-    limit = 50,
-    offset = 0,
+    limit: rawLimit = 50,
+    offset: rawOffset = 0,
   } = params;
+
+  // Clamp limit/offset to safe integer ranges to prevent injection
+  const limit = Math.max(1, Math.min(Math.floor(Number(rawLimit) || 50), 200));
+  const offset = Math.max(0, Math.floor(Number(rawOffset) || 0));
 
   const dimension = DIMENSIONS[levels[currentLevel].dimension];
   const sqlParams: unknown[] = [gmailAccountId];
@@ -131,8 +135,9 @@ export function buildGroupQuery(params: GroupQueryParams): {
       AND ${dimension.sqlColumn} IS NOT NULL
     GROUP BY group_key
     ORDER BY count DESC
-    LIMIT ${limit} OFFSET ${offset}
+    LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
   `;
+  sqlParams.push(limit, offset);
 
   return { sql, params: sqlParams };
 }
@@ -153,9 +158,12 @@ export function buildLeafQuery(params: {
     parentFilters,
     dateRangeStart,
     dateRangeEnd,
-    limit = 50,
-    offset = 0,
+    limit: rawLimit = 50,
+    offset: rawOffset = 0,
   } = params;
+
+  const limit = Math.max(1, Math.min(Math.floor(Number(rawLimit) || 50), 200));
+  const offset = Math.max(0, Math.floor(Number(rawOffset) || 0));
 
   const sqlParams: unknown[] = [gmailAccountId];
   let paramIdx = 2;
@@ -189,8 +197,9 @@ export function buildLeafQuery(params: {
     LEFT JOIN email_categories ec ON ec.email_id = e.id
     WHERE ${whereClauses.join(' AND ')}
     ORDER BY e.received_at DESC
-    LIMIT ${limit} OFFSET ${offset}
+    LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
   `;
+  sqlParams.push(limit, offset);
 
   return { sql, params: sqlParams };
 }

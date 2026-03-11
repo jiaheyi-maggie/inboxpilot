@@ -28,8 +28,9 @@ export async function POST(
   const body = await request.json();
   const action = body.action as EmailAction;
 
-  if (!action) {
-    return NextResponse.json({ error: 'Missing action' }, { status: 400 });
+  const validActions: EmailAction[] = ['mark_read', 'mark_unread', 'trash', 'archive', 'star', 'unstar'];
+  if (!action || !validActions.includes(action)) {
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   }
 
   const serviceClient = createServiceClient();

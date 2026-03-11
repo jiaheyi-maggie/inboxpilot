@@ -1,7 +1,13 @@
 import { google } from 'googleapis';
-import { decrypt } from '@/lib/crypto';
+import { decrypt, encrypt } from '@/lib/crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { GmailAccount } from '@/types';
+
+// In-memory lock per account to prevent concurrent token refreshes
+const refreshLocks = new Map<string, Promise<string>>();
+
+// 5-minute buffer before actual expiry to account for clock skew
+const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 export async function getGmailClient(account: GmailAccount) {
   const oauth2Client = new google.auth.OAuth2(
@@ -12,38 +18,62 @@ export async function getGmailClient(account: GmailAccount) {
   let accessToken = decrypt(account.access_token_encrypted);
   const tokenExpired =
     account.token_expires_at &&
-    new Date(account.token_expires_at) < new Date();
+    new Date(account.token_expires_at).getTime() < Date.now() + TOKEN_EXPIRY_BUFFER_MS;
 
-  // Refresh token if expired
+  // Refresh token if expired (with per-account lock to prevent races)
   if (tokenExpired && account.refresh_token_encrypted) {
-    const refreshToken = decrypt(account.refresh_token_encrypted);
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-
-    const { credentials } = await oauth2Client.refreshAccessToken();
-    if (!credentials.access_token) {
-      throw new Error('Token refresh returned no access token');
-    }
-    accessToken = credentials.access_token;
-
-    // Store refreshed token
-    const { encrypt: enc } = await import('@/lib/crypto');
-    const serviceClient = createServiceClient();
-    const { error: refreshUpdateError } = await serviceClient
-      .from('gmail_accounts')
-      .update({
-        access_token_encrypted: enc(accessToken),
-        token_expires_at: credentials.expiry_date
-          ? new Date(credentials.expiry_date).toISOString()
-          : new Date(Date.now() + 3600 * 1000).toISOString(),
-      })
-      .eq('id', account.id);
-    if (refreshUpdateError) {
-      console.error('[gmail] Failed to store refreshed token:', refreshUpdateError);
-    }
+    accessToken = await refreshTokenWithLock(account);
   }
 
   oauth2Client.setCredentials({ access_token: accessToken });
   return google.gmail({ version: 'v1', auth: oauth2Client });
+}
+
+async function refreshTokenWithLock(account: GmailAccount): Promise<string> {
+  const existing = refreshLocks.get(account.id);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = doRefreshToken(account).finally(() => {
+    refreshLocks.delete(account.id);
+  });
+
+  refreshLocks.set(account.id, promise);
+  return promise;
+}
+
+async function doRefreshToken(account: GmailAccount): Promise<string> {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+
+  const refreshToken = decrypt(account.refresh_token_encrypted!);
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  const { credentials } = await oauth2Client.refreshAccessToken();
+  if (!credentials.access_token) {
+    throw new Error('Token refresh returned no access token');
+  }
+  const accessToken = credentials.access_token;
+
+  // Store refreshed token
+  const serviceClient = createServiceClient();
+  const { error: refreshUpdateError } = await serviceClient
+    .from('gmail_accounts')
+    .update({
+      access_token_encrypted: encrypt(accessToken),
+      token_expires_at: credentials.expiry_date
+        ? new Date(credentials.expiry_date).toISOString()
+        : new Date(Date.now() + 3600 * 1000).toISOString(),
+    })
+    .eq('id', account.id);
+  if (refreshUpdateError) {
+    console.error('[gmail] Failed to store refreshed token:', refreshUpdateError);
+  }
+
+  return accessToken;
 }
 
 export function extractSenderInfo(headers: { name: string; value: string }[]) {
@@ -73,12 +103,16 @@ export function extractDate(headers: { name: string; value: string }[]) {
   const dateStr = headers.find(
     (h) => h.name.toLowerCase() === 'date'
   )?.value;
-  if (!dateStr) return new Date().toISOString();
-  try {
-    return new Date(dateStr).toISOString();
-  } catch {
+  if (!dateStr) {
+    console.warn('[gmail] Missing Date header, falling back to now()');
     return new Date().toISOString();
   }
+  const parsed = new Date(dateStr);
+  if (isNaN(parsed.getTime())) {
+    console.warn(`[gmail] Unparseable Date header: "${dateStr}", falling back to now()`);
+    return new Date().toISOString();
+  }
+  return parsed.toISOString();
 }
 
 // --- Gmail Write Operations (require gmail.modify scope) ---

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { CATEGORIES } from '@/types';
 
 export async function PUT(
   request: NextRequest,
@@ -20,6 +21,10 @@ export async function PUT(
 
   if (!category) {
     return NextResponse.json({ error: 'Missing category' }, { status: 400 });
+  }
+
+  if (!(CATEGORIES as readonly string[]).includes(category)) {
+    return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
   }
 
   const serviceClient = createServiceClient();
@@ -62,10 +67,13 @@ export async function PUT(
   }
 
   // Mark as categorized
-  await serviceClient
+  const { error: catError } = await serviceClient
     .from('emails')
     .update({ is_categorized: true })
     .eq('id', emailId);
+  if (catError) {
+    console.error('[category] Failed to mark email as categorized:', catError);
+  }
 
   return NextResponse.json({ success: true, data });
 }

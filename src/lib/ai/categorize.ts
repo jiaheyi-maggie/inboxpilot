@@ -113,7 +113,17 @@ ${emailSummaries}`,
       }
 
       const input = toolUse.input as { results: CategorizeResult[] };
-      const rows = input.results.map((r) => ({
+
+      // Validate: only accept results whose email_id matches the input batch
+      const batchIds = new Set(batch.map((e) => e.id));
+      const validResults = input.results.filter((r) => batchIds.has(r.email_id));
+      if (validResults.length < input.results.length) {
+        console.warn(
+          `[categorize] AI returned ${input.results.length - validResults.length} unrecognized email_id(s), discarded`
+        );
+      }
+
+      const rows = validResults.map((r) => ({
         email_id: r.email_id,
         category: r.category,
         topic: r.topic,
@@ -121,6 +131,11 @@ ${emailSummaries}`,
         confidence: r.confidence,
         categorized_at: new Date().toISOString(),
       }));
+
+      if (rows.length === 0) {
+        errors += batch.length;
+        continue;
+      }
 
       const { error } = await serviceClient
         .from('email_categories')
@@ -134,10 +149,13 @@ ${emailSummaries}`,
 
         // Mark emails as categorized
         const categorizedIds = rows.map((r) => r.email_id);
-        await serviceClient
+        const { error: markError } = await serviceClient
           .from('emails')
           .update({ is_categorized: true })
           .in('id', categorizedIds);
+        if (markError) {
+          console.error('[categorize] Failed to mark emails as categorized:', markError);
+        }
       }
     } catch (err) {
       console.error('Claude categorization error:', err);

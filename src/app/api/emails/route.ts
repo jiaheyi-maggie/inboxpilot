@@ -60,8 +60,8 @@ export async function GET(request: NextRequest) {
     }
   });
 
-  const limit = parseInt(searchParams.get('limit') ?? '50', 10);
-  const offset = parseInt(searchParams.get('offset') ?? '0', 10);
+  const limit = Math.max(1, Math.min(parseInt(searchParams.get('limit') ?? '50', 10) || 50, 200));
+  const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0', 10) || 0);
 
   // If we've exhausted all grouping levels, return actual emails
   const isLeaf = currentLevel >= levels.length;

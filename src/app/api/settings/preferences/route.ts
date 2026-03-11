@@ -42,6 +42,10 @@ export async function PUT(request: NextRequest) {
     auto_categorize_unread?: boolean;
   };
 
+  if (auto_categorize_unread !== undefined && typeof auto_categorize_unread !== 'boolean') {
+    return NextResponse.json({ error: 'auto_categorize_unread must be boolean' }, { status: 400 });
+  }
+
   const serviceClient = createServiceClient();
 
   const { data, error } = await serviceClient

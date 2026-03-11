@@ -8,9 +8,10 @@ const MAX_ACCOUNTS_PER_RUN = 5;
 const STALE_JOB_MINUTES = 10;
 
 export async function GET(request: NextRequest) {
-  // Verify cron secret
+  // Verify cron secret (guard against undefined CRON_SECRET)
+  const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
 
     if (runningJob) {
       results.push({
-        account: account.email,
+        account_id: account.id,
         status: 'skipped',
         reason: 'Already running',
       });
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Create sync job
-    const { data: job } = await serviceClient
+    const { data: job, error: jobInsertError } = await serviceClient
       .from('sync_jobs')
       .insert({
         gmail_account_id: account.id,
@@ -76,6 +77,10 @@ export async function GET(request: NextRequest) {
       })
       .select()
       .single();
+
+    if (jobInsertError) {
+      console.error(`[cron] Failed to create sync job for ${account.id}:`, jobInsertError);
+    }
 
     try {
       const syncResult = await syncEmails(account);
@@ -99,7 +104,7 @@ export async function GET(request: NextRequest) {
       }
 
       results.push({
-        account: account.email,
+        account_id: account.id,
         status: 'completed',
         fetched: syncResult.fetched,
         categorized: categorizeResult.categorized,
@@ -129,7 +134,7 @@ export async function GET(request: NextRequest) {
       }
 
       results.push({
-        account: account.email,
+        account_id: account.id,
         status: 'failed',
         error: msg,
       });

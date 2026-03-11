@@ -14,6 +14,7 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'trash' | 'archive' | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAction = useCallback(
     async (action: 'trash' | 'archive', confirmed = false) => {
@@ -24,17 +25,25 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
 
       setLoading(true);
       setConfirmAction(null);
+      setError(null);
       try {
         const res = await fetch('/api/emails/category-actions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action, category }),
         });
-        if (res.ok) {
-          onActionComplete?.();
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? `${action} failed`);
+          return;
         }
+        const data = await res.json();
+        if (data.failed > 0) {
+          setError(`${data.failed} email(s) failed to ${action}`);
+        }
+        onActionComplete?.();
       } catch {
-        // silent
+        setError('Network error');
       } finally {
         setLoading(false);
         setShowMenu(false);
@@ -47,6 +56,7 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
     async (newCategory: string) => {
       setLoading(true);
       setShowPicker(false);
+      setError(null);
       try {
         const res = await fetch('/api/emails/category-actions', {
           method: 'POST',
@@ -57,11 +67,14 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
             newCategory,
           }),
         });
-        if (res.ok) {
-          onActionComplete?.();
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? 'Reassign failed');
+          return;
         }
+        onActionComplete?.();
       } catch {
-        // silent
+        setError('Network error');
       } finally {
         setLoading(false);
         setShowMenu(false);
@@ -81,11 +94,18 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
           e.stopPropagation();
           setShowMenu(!showMenu);
           setConfirmAction(null);
+          setError(null);
         }}
         className="p-1 rounded hover:bg-slate-200 transition-colors"
       >
         <MoreHorizontal className="h-3.5 w-3.5 text-slate-400" />
       </button>
+
+      {error && (
+        <p className="absolute right-0 top-full mt-1 text-xs text-red-500 whitespace-nowrap z-50">
+          {error}
+        </p>
+      )}
 
       {showMenu && (
         <>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import {
   Paperclip,
@@ -25,10 +25,10 @@ interface EmailListProps {
 export function EmailList({ emails, onEmailUpdated }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
 
-  // Sync with parent when emails prop changes
-  if (emails !== localEmails && emails.length !== localEmails.length) {
+  // Sync local state when parent emails prop changes
+  useEffect(() => {
     setLocalEmails(emails);
-  }
+  }, [emails]);
 
   const handleEmailRemoved = useCallback(
     (emailId: string) => {

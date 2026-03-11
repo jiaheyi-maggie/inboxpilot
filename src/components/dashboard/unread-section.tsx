@@ -152,8 +152,20 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
             {emails.map((email) => (
               <div
                 key={email.id}
-                className="px-4 py-2.5 hover:bg-blue-50 transition-colors cursor-pointer"
-                onClick={() => handleMarkRead(email.id)}
+                className={`px-4 py-2.5 transition-colors ${
+                  categorizingAll || actioningId
+                    ? 'opacity-60 pointer-events-none'
+                    : 'hover:bg-blue-50 cursor-pointer'
+                }`}
+                onClick={() => !categorizingAll && !actioningId && handleMarkRead(email.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (!categorizingAll && !actioningId) handleMarkRead(email.id);
+                  }
+                }}
               >
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">

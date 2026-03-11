@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { trashEmails, archiveEmails } from '@/lib/gmail/client';
 import type { GmailAccount } from '@/types';
+import { CATEGORIES } from '@/types';
 
 export async function POST(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
@@ -24,8 +25,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing action or category' }, { status: 400 });
   }
 
+  if (!['trash', 'archive', 'reassign'].includes(action)) {
+    return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+  }
+
   if (action === 'reassign' && !newCategory) {
     return NextResponse.json({ error: 'Missing newCategory for reassign' }, { status: 400 });
+  }
+
+  if (action === 'reassign' && newCategory && !(CATEGORIES as readonly string[]).includes(newCategory)) {
+    return NextResponse.json({ error: 'Invalid target category' }, { status: 400 });
   }
 
   const serviceClient = createServiceClient();
@@ -97,7 +106,7 @@ export async function POST(request: NextRequest) {
         }
         const archiveResult = await archiveEmails(gmailAccount, gmailMessageIds);
         // Update label_ids in DB — remove INBOX label for each email
-        await Promise.allSettled(
+        const dbResults = await Promise.allSettled(
           emails.map((e) => {
             const currentLabels = (e.label_ids as string[]) ?? [];
             const newLabels = currentLabels.filter((l: string) => l !== 'INBOX');
@@ -107,6 +116,10 @@ export async function POST(request: NextRequest) {
               .eq('id', e.id);
           })
         );
+        const dbFailed = dbResults.filter((r) => r.status === 'rejected').length;
+        if (dbFailed > 0) {
+          console.error(`[category-action] ${dbFailed} DB label updates failed during archive`);
+        }
         return NextResponse.json({
           success: true,
           action: 'archive',

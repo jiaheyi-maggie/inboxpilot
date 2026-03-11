@@ -2,10 +2,15 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypt
 
 const ALGORITHM = 'aes-256-gcm';
 
+// Cache the derived key at module level — scryptSync is expensive (~100ms)
+let _cachedKey: Buffer | null = null;
+
 function getKey(): Buffer {
+  if (_cachedKey) return _cachedKey;
   const secret = process.env.TOKEN_ENCRYPTION_KEY;
   if (!secret) throw new Error('TOKEN_ENCRYPTION_KEY is not set');
-  return scryptSync(secret, 'inboxpilot-salt', 32);
+  _cachedKey = scryptSync(secret, 'inboxpilot-salt', 32);
+  return _cachedKey;
 }
 
 export function encrypt(text: string): string {
@@ -23,8 +28,17 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(encryptedText: string): string {
+  if (!encryptedText || typeof encryptedText !== 'string') {
+    throw new Error('Invalid encrypted text');
+  }
+
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted text format');
+  }
+
   const key = getKey();
-  const [ivHex, authTagHex, encrypted] = encryptedText.split(':');
+  const [ivHex, authTagHex, encrypted] = parts;
 
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');

@@ -5,7 +5,7 @@ import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
 import { UnreadSection } from './unread-section';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig } from '@/types';
-import { Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 interface EmailTreeProps {
   config: GroupingConfig;
@@ -17,21 +17,28 @@ export function EmailTree({ config }: EmailTreeProps) {
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [fetchError, setFetchError] = useState(false);
 
   const fetchNodes = useCallback(async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       const params = new URLSearchParams({
         level: '0',
         configId: config.id,
       });
       const res = await fetch(`/api/emails?${params}`);
+      if (!res.ok) {
+        setFetchError(true);
+        return;
+      }
       const data = await res.json();
       if (data.type === 'groups') {
         setRootNodes(data.data);
       }
     } catch (err) {
       console.error('Failed to fetch tree nodes:', err);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -75,7 +82,18 @@ export function EmailTree({ config }: EmailTreeProps) {
         {/* Unread section pinned at top */}
         <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={refreshKey} />
 
-        {rootNodes.length === 0 ? (
+        {fetchError ? (
+          <div className="text-center py-12 text-slate-500">
+            <AlertCircle className="h-6 w-6 text-red-400 mx-auto mb-2" />
+            <p className="text-sm font-medium text-red-600">Failed to load emails</p>
+            <button
+              onClick={fetchNodes}
+              className="text-sm text-blue-600 mt-2 hover:underline"
+            >
+              Retry
+            </button>
+          </div>
+        ) : rootNodes.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-lg font-medium">No emails yet</p>
             <p className="text-sm mt-1">
