@@ -139,6 +139,7 @@ async function handleGroupQuery(
   }
 
   if (!rows || rows.length === 0) {
+    console.log(`[emails] 0 rows for account=${gmailAccountId}, dimension=${targetDimension}`);
     return NextResponse.json({
       type: 'groups',
       dimension: targetDimension,
@@ -149,14 +150,25 @@ async function handleGroupQuery(
 
   // Apply JS-side filters for category and date dimensions
   type RowWithCat = Record<string, unknown> & {
-    email_categories?: Record<string, unknown>[] | null;
+    email_categories?: Record<string, unknown> | Record<string, unknown>[] | null;
   };
   let filtered = rows as unknown as RowWithCat[];
+
+  // Diagnostic: log shape of embedded email_categories for category dimensions
+  if (CATEGORY_DIMENSIONS.has(targetDimension) && filtered.length > 0) {
+    const sample = filtered[0]?.email_categories;
+    const withCat = filtered.filter((r) => getCategory(r.email_categories) != null).length;
+    console.log(
+      `[emails] rows=${filtered.length}, withCategories=${withCat}, ` +
+      `dimension=${targetDimension}, sampleType=${typeof sample}, ` +
+      `isArray=${Array.isArray(sample)}, sample=${JSON.stringify(sample)?.slice(0, 200)}`
+    );
+  }
 
   for (const filter of parentFilters) {
     if (CATEGORY_DIMENSIONS.has(filter.dimension)) {
       filtered = filtered.filter((row) => {
-        const cat = Array.isArray(row.email_categories) ? row.email_categories[0] : null;
+        const cat = getCategory(row.email_categories);
         return cat != null && cat[filter.dimension] === filter.value;
       });
     } else if (DATE_DIMENSIONS.has(filter.dimension)) {
@@ -174,7 +186,7 @@ async function handleGroupQuery(
     let key: string | null = null;
 
     if (CATEGORY_DIMENSIONS.has(targetDimension)) {
-      const cat = Array.isArray(row.email_categories) ? row.email_categories[0] : null;
+      const cat = getCategory(row.email_categories);
       key = cat ? (cat[targetDimension] as string) ?? null : null;
     } else if (DATE_DIMENSIONS.has(targetDimension)) {
       key = formatDateDimension(row.received_at as string, targetDimension);
@@ -196,6 +208,8 @@ async function handleGroupQuery(
     .map(([group_key, count]) => ({ group_key, count }))
     .sort((a, b) => b.count - a.count)
     .slice(offset, offset + limit);
+
+  console.log(`[emails] Grouped ${filtered.length} rows into ${sorted.length} groups for dimension=${targetDimension}: ${sorted.map(g => `${g.group_key}(${g.count})`).join(', ')}`);
 
   return NextResponse.json({
     type: 'groups',
@@ -255,7 +269,7 @@ async function handleLeafQuery(
   }
 
   type RowWithCat = Record<string, unknown> & {
-    email_categories?: Record<string, unknown>[] | null;
+    email_categories?: Record<string, unknown> | Record<string, unknown>[] | null;
   };
   let rows = (rawData ?? []) as unknown as RowWithCat[];
 
@@ -263,7 +277,7 @@ async function handleLeafQuery(
   for (const filter of parentFilters) {
     if (CATEGORY_DIMENSIONS.has(filter.dimension)) {
       rows = rows.filter((row) => {
-        const cat = Array.isArray(row.email_categories) ? row.email_categories[0] : null;
+        const cat = getCategory(row.email_categories);
         return cat != null && cat[filter.dimension] === filter.value;
       });
     } else if (DATE_DIMENSIONS.has(filter.dimension)) {
@@ -276,7 +290,7 @@ async function handleLeafQuery(
 
   // Flatten category data onto each email
   const emails = rows.map((e) => {
-    const cat = Array.isArray(e.email_categories) ? e.email_categories[0] : null;
+    const cat = getCategory(e.email_categories);
     return {
       ...e,
       category: (cat?.category as string) ?? null,
@@ -291,6 +305,20 @@ async function handleLeafQuery(
 }
 
 // --- Helpers ---
+
+/**
+ * Normalize the embedded email_categories relationship.
+ * PostgREST returns a single object (not array) for one-to-one relationships
+ * (email_categories.email_id has a UNIQUE constraint), but may return an array
+ * in older PostgREST versions. Handle both shapes.
+ */
+function getCategory(
+  emailCategories: Record<string, unknown> | Record<string, unknown>[] | null | undefined,
+): Record<string, unknown> | null {
+  if (emailCategories == null) return null;
+  if (Array.isArray(emailCategories)) return emailCategories[0] ?? null;
+  return emailCategories;
+}
 
 function getEmailColumn(dimension: DimensionKey): string | null {
   const map: Partial<Record<DimensionKey, string>> = {

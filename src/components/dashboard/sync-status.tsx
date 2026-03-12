@@ -24,9 +24,16 @@ export function SyncStatus({ onSyncComplete }: SyncStatusProps) {
       const data = await res.json();
 
       if (res.ok) {
+        const parts: string[] = [];
+        if (data.fetched > 0) parts.push(`${data.fetched} new`);
+        if (data.categorized > 0) parts.push(`${data.categorized} categorized`);
+        if (parts.length === 0) {
+          // No new activity — show total context
+          parts.push(`${data.totalEmails ?? 0} emails, ${data.totalCategorized ?? 0} categorized`);
+        }
         setResult({
           success: true,
-          message: `Synced ${data.fetched} emails, categorized ${data.categorized}`,
+          message: parts.join(', '),
         });
         // Notify parent to refresh tree + unread section
         onSyncComplete?.();

@@ -79,10 +79,25 @@ export async function POST() {
         .eq('id', job.id);
     }
 
+    // Fetch total counts for diagnostic context
+    const { count: totalEmails } = await serviceClient
+      .from('emails')
+      .select('*', { count: 'exact', head: true })
+      .eq('gmail_account_id', gmailAccount.id);
+    const { count: totalCategorized } = await serviceClient
+      .from('emails')
+      .select('*', { count: 'exact', head: true })
+      .eq('gmail_account_id', gmailAccount.id)
+      .eq('is_categorized', true);
+
+    console.log(`[sync-api] Done. fetched=${syncResult.fetched}, categorized=${categorizeResult.categorized}, totalEmails=${totalEmails}, totalCategorized=${totalCategorized}`);
+
     return NextResponse.json({
       success: true,
       fetched: syncResult.fetched,
       categorized: categorizeResult.categorized,
+      totalEmails: totalEmails ?? 0,
+      totalCategorized: totalCategorized ?? 0,
     });
   } catch (err) {
     console.error('Sync failed:', err);
