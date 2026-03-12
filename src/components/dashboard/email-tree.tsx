@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
 import { UnreadSection } from './unread-section';
@@ -11,6 +11,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
+import type { Layout } from 'react-resizable-panels';
 import { createClient } from '@/lib/supabase/client';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig } from '@/types';
 import { AlertCircle } from 'lucide-react';
@@ -146,28 +147,21 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     setUnreadRefreshKey((k) => k + 1);
   }, [fetchNodes]);
 
-  // Persist sidebar size to localStorage
-  const LAYOUT_STORAGE_KEY = 'inboxpilot-sidebar-layout';
-
-  const savedLayout = useMemo(() => {
+  // Persist sidebar layout to localStorage
+  const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
+  const [savedLayout] = useState<Layout | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
     try {
-      const stored = localStorage.getItem(LAYOUT_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as Record<string, number>;
-        // Validate it's a non-empty object with numeric values
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-          return parsed;
-        }
-      }
-    } catch { /* ignore parse errors */ }
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (raw) return JSON.parse(raw) as Layout;
+    } catch { /* ignore corrupt data */ }
     return undefined;
-  }, []);
+  });
 
-  const handleLayoutChanged = useCallback((layout: Record<string, number>) => {
+  const handleLayoutChanged = useCallback((layout: Layout) => {
     try {
-      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
-    } catch { /* quota exceeded, ignore */ }
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+    } catch { /* storage full or unavailable */ }
   }, []);
 
   const treeContent = (
@@ -253,14 +247,14 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
         <ResizablePanelGroup
           orientation="horizontal"
           id="inboxpilot-sidebar"
-          defaultLayout={savedLayout}
           onLayoutChanged={handleLayoutChanged}
+          {...(savedLayout ? { defaultLayout: savedLayout } : {})}
         >
-          <ResizablePanel id="tree" defaultSize={25} minSize={15} maxSize={40}>
+          <ResizablePanel id="tree" defaultSize="25" minSize="15" maxSize="40">
             <ScrollArea className="h-full">{treeContent}</ScrollArea>
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel id="emails" defaultSize={75}>
+          <ResizablePanel id="emails" defaultSize="75" minSize="40">
             <ScrollArea className="h-full">{emailContent}</ScrollArea>
           </ResizablePanel>
         </ResizablePanelGroup>

@@ -1,5 +1,6 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { AppShell } from '@/components/app-shell';
 
 export default async function AppLayout({
   children,
@@ -15,5 +16,19 @@ export default async function AppLayout({
     redirect('/');
   }
 
-  return <>{children}</>;
+  const serviceClient = createServiceClient();
+
+  // Fetch Gmail account for header (scope banner, sync status)
+  const { data: account } = await serviceClient
+    .from('gmail_accounts')
+    .select('id, email, last_sync_at, sync_enabled, granted_scope')
+    .eq('user_id', user.id)
+    .limit(1)
+    .single();
+
+  return (
+    <AppShell userEmail={user.email ?? ''} account={account}>
+      {children}
+    </AppShell>
+  );
 }

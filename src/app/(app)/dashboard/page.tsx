@@ -24,7 +24,7 @@ export default async function DashboardPage() {
   // No config yet — send to setup wizard
   if (!config) redirect('/setup');
 
-  // Get Gmail account status
+  // Get Gmail account status (for auto-sync check)
   const { data: account } = await serviceClient
     .from('gmail_accounts')
     .select('id, email, last_sync_at, sync_enabled, granted_scope')
@@ -32,23 +32,10 @@ export default async function DashboardPage() {
     .limit(1)
     .single();
 
-  // Get latest sync job
-  const latestSync = account
-    ? await serviceClient
-        .from('sync_jobs')
-        .select('*')
-        .eq('gmail_account_id', account.id)
-        .order('started_at', { ascending: false })
-        .limit(1)
-        .single()
-    : null;
-
   return (
     <DashboardClient
       config={config}
       account={account}
-      lastSync={latestSync?.data}
-      userEmail={user.email ?? ''}
     />
   );
 }
