@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { trashEmails, archiveEmails, markAsReadBulk, markAsUnreadBulk } from '@/lib/gmail/client';
 import { DIMENSIONS } from '@/lib/grouping/engine';
+import { partitionByGmailId, buildActionResult } from '@/lib/email-utils';
 import type { GmailAccount, DimensionKey, TreeActionRequest } from '@/types';
 import { CATEGORIES } from '@/types';
 
@@ -161,8 +162,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, affected: 0 });
   }
 
-  const emailIds = rows.map((r) => r.id as string);
-  const gmailMessageIds = rows.map((r) => r.gmail_message_id as string);
+  // Filter out rows with null/missing gmail_message_id to prevent batch API failures
+  const { valid: gmailRows, invalid: skippedRows } = partitionByGmailId(
+    rows as (RowWithCat & { gmail_message_id: unknown })[]
+  );
+  if (skippedRows.length > 0) {
+    console.warn(`[tree-action] Skipped ${skippedRows.length} emails with missing gmail_message_id`);
+  }
+
+  if (gmailRows.length === 0) {
+    return NextResponse.json({ success: true, affected: 0, skipped: skippedRows.length });
+  }
+
+  const gmailMessageIds = gmailRows.map((r) => r.gmail_message_id as string);
 
   // --- Execute action ---
   try {
@@ -172,19 +184,29 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
         }
         const trashResult = await trashEmails(gmailAccount, gmailMessageIds);
-        const { error: deleteError } = await serviceClient
-          .from('emails')
-          .delete()
-          .in('id', emailIds);
-        if (deleteError) {
-          console.error('[tree-action] DB delete failed:', deleteError);
+        // Soft-delete: update labels (remove INBOX, add TRASH) instead of deleting from DB
+        const trashDbResults = await Promise.allSettled(
+          gmailRows.map((e) => {
+            const currentLabels = ((e.label_ids as string[]) ?? []).filter((l: string) => l !== 'INBOX');
+            if (!currentLabels.includes('TRASH')) currentLabels.push('TRASH');
+            return serviceClient
+              .from('emails')
+              .update({ label_ids: currentLabels })
+              .eq('id', e.id as string);
+          })
+        );
+        const trashDbFailed = trashDbResults.filter(
+          (r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value?.error)
+        ).length;
+        if (trashDbFailed > 0) {
+          console.error(`[tree-action] ${trashDbFailed} DB label updates failed during trash`);
         }
-        return NextResponse.json({
-          success: true,
-          action: 'trash',
-          affected: trashResult.trashed,
-          failed: trashResult.failed,
-        });
+        const trashActionResult = buildActionResult(
+          'trash',
+          { affected: trashResult.trashed, failed: trashResult.failed },
+          trashDbFailed > 0 ? `${trashDbFailed} DB label updates failed` : null,
+        );
+        return NextResponse.json(trashActionResult.body, { status: trashActionResult.status });
       }
 
       case 'archive': {
@@ -194,7 +216,7 @@ export async function POST(request: NextRequest) {
         const archiveResult = await archiveEmails(gmailAccount, gmailMessageIds);
         // Update label_ids: remove INBOX for each email
         const archiveDbResults = await Promise.allSettled(
-          rows.map((e) => {
+          gmailRows.map((e) => {
             const currentLabels = (e.label_ids as string[]) ?? [];
             const newLabels = currentLabels.filter((l: string) => l !== 'INBOX');
             return serviceClient
@@ -210,13 +232,12 @@ export async function POST(request: NextRequest) {
         if (archiveDbFailed > 0) {
           console.error(`[tree-action] ${archiveDbFailed} DB label updates failed during archive`);
         }
-        return NextResponse.json({
-          success: true,
-          action: 'archive',
-          affected: archiveResult.archived,
-          gmailFailed: archiveResult.failed,
-          dbFailed: archiveDbFailed,
-        });
+        const archiveActionResult = buildActionResult(
+          'archive',
+          { affected: archiveResult.archived, failed: archiveResult.failed },
+          archiveDbFailed > 0 ? `${archiveDbFailed} DB label updates failed` : null,
+        );
+        return NextResponse.json(archiveActionResult.body, { status: archiveActionResult.status });
       }
 
       case 'mark_read': {
@@ -224,7 +245,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
         }
         // Only modify unread emails
-        const unreadRows = rows.filter((r) => r.is_read === false);
+        const unreadRows = gmailRows.filter((r) => r.is_read === false);
         if (unreadRows.length === 0) {
           return NextResponse.json({ success: true, action: 'mark_read', affected: 0 });
         }
@@ -236,12 +257,12 @@ export async function POST(request: NextRequest) {
           .update({ is_read: true })
           .in('id', unreadDbIds);
         if (readErr) console.error('[tree-action] DB update is_read failed:', readErr);
-        return NextResponse.json({
-          success: true,
-          action: 'mark_read',
-          affected: readResult.updated,
-          failed: readResult.failed,
-        });
+        const readActionResult = buildActionResult(
+          'mark_read',
+          { affected: readResult.updated, failed: readResult.failed },
+          readErr ? readErr.message : null,
+        );
+        return NextResponse.json(readActionResult.body, { status: readActionResult.status });
       }
 
       case 'mark_unread': {
@@ -249,7 +270,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
         }
         // Only modify read emails
-        const readRows = rows.filter((r) => r.is_read === true);
+        const readRows = gmailRows.filter((r) => r.is_read === true);
         if (readRows.length === 0) {
           return NextResponse.json({ success: true, action: 'mark_unread', affected: 0 });
         }
@@ -261,12 +282,12 @@ export async function POST(request: NextRequest) {
           .update({ is_read: false })
           .in('id', readDbIds);
         if (unreadErr) console.error('[tree-action] DB update is_read failed:', unreadErr);
-        return NextResponse.json({
-          success: true,
-          action: 'mark_unread',
-          affected: unreadResult.updated,
-          failed: unreadResult.failed,
-        });
+        const unreadActionResult = buildActionResult(
+          'mark_unread',
+          { affected: unreadResult.updated, failed: unreadResult.failed },
+          unreadErr ? unreadErr.message : null,
+        );
+        return NextResponse.json(unreadActionResult.body, { status: unreadActionResult.status });
       }
 
       case 'reassign': {

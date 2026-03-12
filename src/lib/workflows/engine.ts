@@ -288,10 +288,16 @@ async function executeAction(
   const serviceClient = createServiceClient();
 
   switch (action.actionType) {
-    case 'trash':
+    case 'trash': {
       await trashEmail(account, email.gmail_message_id);
-      await serviceClient.from('emails').delete().eq('id', email.id);
+      const currentLabels = (email.label_ids ?? []).filter((l) => l !== 'INBOX');
+      if (!currentLabels.includes('TRASH')) currentLabels.push('TRASH');
+      await serviceClient
+        .from('emails')
+        .update({ label_ids: currentLabels })
+        .eq('id', email.id);
       break;
+    }
 
     case 'archive':
       await archiveEmail(account, email.gmail_message_id);

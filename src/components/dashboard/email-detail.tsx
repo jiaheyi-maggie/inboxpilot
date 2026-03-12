@@ -15,9 +15,11 @@ import {
   Trash2,
   ArrowRight,
   Zap,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { CategoryBadge } from './category-badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -54,6 +56,7 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
     ? format(new Date(email.received_at), 'EEEE, MMMM d, yyyy \'at\' h:mm a')
     : '';
 
+  const isTrashed = email.label_ids?.includes('TRASH') ?? false;
   const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.thread_id ?? email.gmail_message_id}`;
 
   // Fetch body on mount
@@ -157,6 +160,10 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
           case 'mark_unread':
             onUpdated(email.id, { is_read: false });
             break;
+          case 'restore':
+            toast.success('Restored to inbox');
+            onRemoved(email.id);
+            break;
         }
       } catch {
         toast.error('Network error');
@@ -215,6 +222,18 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         <div className="ml-auto flex items-center gap-1">
           {actionLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : isTrashed ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => executeAction('restore')}
+              >
+                <RotateCcw className="h-4 w-4" />
+                Restore
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -325,7 +344,7 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
 
         {/* Tags */}
         <div className="flex items-center gap-1.5 mt-3">
-          {email.category && <Badge variant="category">{email.category}</Badge>}
+          {email.category && <CategoryBadge category={email.category} />}
           {email.priority === 'high' && <Badge variant="high">High</Badge>}
           {email.priority === 'low' && <Badge variant="low">Low</Badge>}
           {email.topic && (

@@ -83,12 +83,47 @@ export async function POST(request: NextRequest) {
     .update({ categorization_status: 'pending' })
     .in('id', uncategorizedIds);
 
-  // Schedule background categorization
+  // Schedule background categorization + workflow execution
+  const accountForWorkflows = account as GmailAccount;
+  const uncategorizedForBg = [...uncategorized];
+
   after(async () => {
     try {
-      console.log(`[categorize-bg] Starting background categorization of ${uncategorized.length} emails`);
-      const result = await categorizeEmails(uncategorized, user.id);
+      console.log(`[categorize-bg] Starting background categorization of ${uncategorizedForBg.length} emails`);
+      const result = await categorizeEmails(uncategorizedForBg, user.id);
       console.log(`[categorize-bg] Done: categorized=${result.categorized}, errors=${result.errors}`);
+
+      // Fire email_categorized workflows for newly categorized emails
+      if (result.categorized > 0) {
+        try {
+          const bgServiceClient = createServiceClient();
+          const { runWorkflowsForEmail } = await import('@/lib/workflows/runner');
+          const { data: categorizedEmails } = await bgServiceClient
+            .from('emails')
+            .select('*, email_categories(category, topic, priority, confidence)')
+            .in('id', uncategorizedForBg.map((e) => e.id))
+            .eq('is_categorized', true);
+
+          if (categorizedEmails && categorizedEmails.length > 0) {
+            console.log(`[categorize-bg] Running email_categorized workflows for ${categorizedEmails.length} emails`);
+            for (const emailRow of categorizedEmails) {
+              const cat = (emailRow as Record<string, unknown>).email_categories;
+              const catObj = Array.isArray(cat) ? cat[0] : cat;
+              const emailWithCat = {
+                ...emailRow,
+                email_categories: undefined,
+                category: (catObj as Record<string, unknown>)?.category as string ?? null,
+                topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
+                priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+                confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+              };
+              await runWorkflowsForEmail(emailWithCat, 'email_categorized', accountForWorkflows);
+            }
+          }
+        } catch (wfErr) {
+          console.error('[categorize-bg] email_categorized workflow execution failed:', wfErr);
+        }
+      }
     } catch (err) {
       console.error('[categorize-bg] Background categorization failed:', err);
     }

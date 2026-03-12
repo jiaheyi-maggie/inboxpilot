@@ -224,6 +224,52 @@ export async function unstarEmail(account: GmailAccount, gmailMessageId: string)
   });
 }
 
+export async function starEmails(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { addLabelIds: ['STARRED'] },
+      })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { starred: gmailMessageIds.length - failed, failed };
+}
+
+export async function unstarEmails(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['STARRED'] },
+      })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { unstarred: gmailMessageIds.length - failed, failed };
+}
+
+export async function untrashEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.untrash({ userId: 'me', id: gmailMessageId });
+}
+
+export async function untrashEmails(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.untrash({ userId: 'me', id })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { restored: gmailMessageIds.length - failed, failed };
+}
+
 // --- Email Body Fetching ---
 
 export async function fetchEmailBody(

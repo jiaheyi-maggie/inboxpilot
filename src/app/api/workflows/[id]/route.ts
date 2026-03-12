@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { validateWorkflow } from '@/lib/workflows/validate';
-import type { WorkflowGraph } from '@/types';
+import type { GmailAccount, WorkflowGraph } from '@/types';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -87,6 +87,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
     update.is_enabled = body.is_enabled;
   }
 
+  // Detect enable transition: was disabled, now being enabled
+  const wasEnabled = existing.is_enabled;
+  const nowEnabled = update.is_enabled === true;
+  const justEnabled = !wasEnabled && nowEnabled;
+
   const { data: workflow, error: updateErr } = await serviceClient
     .from('workflows')
     .update(update)
@@ -98,6 +103,33 @@ export async function PUT(request: NextRequest, { params }: Params) {
   if (updateErr) {
     console.error('[workflows] Update failed:', updateErr);
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
+  }
+
+  // Auto-backfill: when a workflow is newly enabled, run it against existing matching emails
+  if (justEnabled && workflow) {
+    after(async () => {
+      try {
+        const bgServiceClient = createServiceClient();
+        const { data: account } = await bgServiceClient
+          .from('gmail_accounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+
+        if (!account) {
+          console.warn(`[workflows] No Gmail account for user ${user.id}, skipping backfill`);
+          return;
+        }
+
+        const { backfillWorkflow } = await import('@/lib/workflows/backfill');
+        const graph = workflow.graph as WorkflowGraph;
+        const result = await backfillWorkflow(workflow.id, graph, account as GmailAccount);
+        console.log(`[workflows] Backfill for ${workflow.id}: processed=${result.processed}, skipped=${result.skipped}, failed=${result.failed}`);
+      } catch (err) {
+        console.error(`[workflows] Backfill failed for ${workflow.id}:`, err);
+      }
+    });
   }
 
   return NextResponse.json({ workflow });

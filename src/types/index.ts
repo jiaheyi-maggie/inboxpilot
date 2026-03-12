@@ -115,7 +115,11 @@ export type EmailAction =
   | 'trash'
   | 'archive'
   | 'star'
-  | 'unstar';
+  | 'unstar'
+  | 'restore';
+
+/** Keys for system-level sidebar groups (not AI categories) */
+export type SystemGroupKey = 'starred' | 'archived' | 'trash';
 
 /** Bulk actions available on tree nodes (any dimension level) */
 export type TreeAction =

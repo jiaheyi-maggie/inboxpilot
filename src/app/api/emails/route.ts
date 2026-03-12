@@ -108,7 +108,7 @@ async function handleGroupQuery(
     .from('emails')
     .select(selectFields)
     .eq('gmail_account_id', gmailAccountId)
-    .contains('label_ids', '["INBOX"]');
+    .contains('label_ids', ['INBOX']);
 
   // Apply date range from config
   if (config.date_range_start) {
@@ -238,7 +238,7 @@ async function handleLeafQuery(
       email_categories(category, topic, priority, confidence)
     `)
     .eq('gmail_account_id', gmailAccountId)
-    .contains('label_ids', '["INBOX"]')
+    .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);
 

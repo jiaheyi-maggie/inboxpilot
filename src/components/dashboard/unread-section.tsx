@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  ExternalLink,
   Inbox,
   Loader2,
   MailOpen,
@@ -18,11 +17,13 @@ import type { Email } from '@/types';
 
 interface UnreadSectionProps {
   onEmailRead?: () => void;
+  /** Called when user clicks an unread email — opens it in the right panel */
+  onSelectEmail?: (email: Email) => void;
   /** Increment to trigger a re-fetch (e.g. when emails change externally) */
   refreshKey?: number;
 }
 
-export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
+export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey }: UnreadSectionProps) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -148,6 +149,7 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
                 email={email}
                 disabled={categorizingAll}
                 onProcessed={handleEmailProcessed}
+                onSelect={onSelectEmail}
               />
             ))}
           </div>
@@ -163,18 +165,19 @@ interface UnreadEmailCardProps {
   email: Email;
   disabled: boolean;
   onProcessed: (emailId: string) => void;
+  onSelect?: (email: Email) => void;
 }
 
-function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function UnreadEmailCard({ email, disabled, onProcessed, onSelect }: UnreadEmailCardProps) {
   const [actioning, setActioning] = useState(false);
   const [exiting, setExiting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   const handleClick = useCallback(() => {
     if (disabled || actioning) return;
-    setIsOpen((prev) => !prev);
-  }, [disabled, actioning]);
+    // Open email in the right panel
+    onSelect?.(email);
+  }, [disabled, actioning, onSelect, email]);
 
   const EXIT_ANIMATION_MS = 300;
 
@@ -199,12 +202,10 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
         setExiting(true);
 
         if (data.category) {
-          // Already categorized (was previously read+categorized)
           toast.success(`Moved to ${data.category}`, {
             description: email.subject || '(no subject)',
           });
         } else if (data.categorization_status === 'pending') {
-          // Background categorization started
           toast.success('Marked as read — categorizing...', {
             description: email.subject || '(no subject)',
           });
@@ -223,8 +224,6 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
     [email.id, email.subject, onProcessed],
   );
 
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.thread_id ?? email.gmail_message_id}`;
-
   return (
     <div
       ref={cardRef}
@@ -233,11 +232,11 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
       }`}
     >
       <div
-        className={`transition-colors ${
+        className={`group relative transition-colors ${
           disabled || actioning
             ? 'opacity-60 pointer-events-none'
             : 'hover:bg-accent/50 cursor-pointer'
-        } ${isOpen ? 'bg-accent/50' : ''}`}
+        }`}
         onClick={handleClick}
         role="button"
         tabIndex={0}
@@ -248,7 +247,6 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
           }
         }}
       >
-        {/* Collapsed row */}
         <div className="px-4 py-2.5">
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
@@ -265,11 +263,9 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
               <p className="text-sm font-medium text-foreground truncate mt-0.5">
                 {email.subject || '(no subject)'}
               </p>
-              {!isOpen && (
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {email.snippet}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                {email.snippet}
+              </p>
             </div>
             {actioning && (
               <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0 mt-1" />
@@ -277,53 +273,28 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
           </div>
         </div>
 
-        {/* Expanded details */}
+        {/* Hover-reveal quick action: mark read & categorize */}
         <div
-          className={`grid transition-all duration-200 ease-in-out ${
-            isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-          }`}
+          className="absolute right-3 top-1/2 -translate-y-1/2
+            flex items-center gap-1 px-2 py-1 rounded-lg
+            bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm
+            opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+          onClick={(e) => e.stopPropagation()}
         >
-          <div className="overflow-hidden">
-            <div className="px-4 pb-3 space-y-2">
-              {/* Full snippet */}
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {email.snippet}
-              </p>
-
-              {/* Metadata row */}
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span>From: {email.sender_email}</span>
-                {email.has_attachment && <span>📎 Attachment</span>}
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-2 pt-1">
-                <Button
-                  size="sm"
-                  className="h-7 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
-                  onClick={markReadAndExit}
-                  disabled={actioning}
-                >
-                  {actioning ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <MailOpen className="h-3 w-3 mr-1" />
-                  )}
-                  Read & Categorize
-                </Button>
-                <a
-                  href={gmailUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 hover:underline ml-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Open in Gmail
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-            </div>
-          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-primary hover:text-primary hover:bg-primary/10 px-2"
+            onClick={markReadAndExit}
+            disabled={actioning}
+          >
+            {actioning ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <MailOpen className="h-3 w-3 mr-1" />
+            )}
+            Categorize
+          </Button>
         </div>
       </div>
     </div>

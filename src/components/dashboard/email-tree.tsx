@@ -5,6 +5,7 @@ import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
 import { UnreadSection } from './unread-section';
 import { InboxOverview } from './inbox-overview';
+import { SystemGroups } from './system-groups';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -14,8 +15,9 @@ import {
 } from '@/components/ui/resizable';
 import type { Layout } from 'react-resizable-panels';
 import { createClient } from '@/lib/supabase/client';
-import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig } from '@/types';
-import { AlertCircle } from 'lucide-react';
+import { EmailDetail } from './email-detail';
+import type { Email, EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig, SystemGroupKey } from '@/types';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface EmailTreeProps {
@@ -44,10 +46,20 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   const [selectedEmails, setSelectedEmails] = useState<EmailWithCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // When an unread email is clicked from the UnreadSection, show it directly in the right panel
+  const [unreadSelectedEmail, setUnreadSelectedEmail] = useState<EmailWithCategory | null>(null);
   const [unreadRefreshKey, setUnreadRefreshKey] = useState(0);
+  // System group selection (starred/archived/trash)
+  const [selectedSystemGroup, setSelectedSystemGroup] = useState<SystemGroupKey | null>(null);
+  const [systemGroupEmails, setSystemGroupEmails] = useState<EmailWithCategory[]>([]);
+  const [systemGroupLoading, setSystemGroupLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
   const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Suppress realtime INSERT toasts until after initial data load completes.
+  // Without this, existing emails replayed by Supabase Realtime on subscription
+  // cause "New email received" toast spam on first page load.
+  const initialLoadDoneRef = useRef(false);
 
   const fetchNodes = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) setLoading(true);
@@ -75,7 +87,11 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   }, [config.id]);
 
   useEffect(() => {
-    fetchNodes(true);
+    fetchNodes(true).then(() => {
+      // Mark initial load as done after a short delay to let Supabase Realtime
+      // replay any existing rows. Realtime replays happen within ~1-2s of subscription.
+      setTimeout(() => { initialLoadDoneRef.current = true; }, 3000);
+    });
   }, [fetchNodes, refreshKey]);
 
   // Debounced refresh: coalesce rapid realtime events (e.g. during bulk sync)
@@ -106,10 +122,16 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
         (payload) => {
           const subject = (payload.new as Record<string, unknown>)?.subject as string;
           console.log('[realtime] New email inserted:', subject);
-          debouncedRefresh({
-            title: 'New email received',
-            description: subject ?? 'New email',
-          });
+          if (initialLoadDoneRef.current) {
+            // Only toast for truly new emails arriving after the user is already in the app
+            debouncedRefresh({
+              title: 'New email received',
+              description: subject ?? 'New email',
+            });
+          } else {
+            // Silently refresh — these are replayed events from initial subscription
+            debouncedRefresh();
+          }
         },
       )
       .on(
@@ -138,6 +160,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     (emails: EmailWithCategory[], path: string) => {
       setSelectedEmails(emails);
       setSelectedPath(path);
+      setSelectedSystemGroup(null); // Clear system group when tree node selected
     },
     []
   );
@@ -153,6 +176,97 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     fetchNodes(false);
     setUnreadRefreshKey((k) => k + 1);
   }, [fetchNodes]);
+
+  // When an unread email is clicked, show it in the right panel
+  const handleUnreadEmailSelected = useCallback((email: Email) => {
+    // Cast Email → EmailWithCategory (unread emails have null category fields)
+    const emailWithCat: EmailWithCategory = {
+      ...email,
+      category: null,
+      topic: null,
+      priority: null,
+      confidence: null,
+    };
+    setUnreadSelectedEmail(emailWithCat);
+    setSelectedPath('__unread__');
+    setSelectedSystemGroup(null); // Clear system group when unread email selected
+  }, []);
+
+  // When an unread email is removed/categorized from the detail view
+  const handleUnreadEmailRemoved = useCallback((emailId: string) => {
+    setUnreadSelectedEmail(null);
+    setSelectedPath(null);
+    handleEmailsChanged();
+    // Also remove from unread list
+    void emailId; // used by the caller
+  }, [handleEmailsChanged]);
+
+  const handleUnreadEmailUpdated = useCallback((emailId: string, updates: Partial<EmailWithCategory>) => {
+    setUnreadSelectedEmail((prev) => prev && prev.id === emailId ? { ...prev, ...updates } : prev);
+  }, []);
+
+  const handleUnreadEmailCategoryChanged = useCallback((emailId: string, category: string) => {
+    setUnreadSelectedEmail((prev) => prev && prev.id === emailId ? { ...prev, category } : prev);
+    handleEmailsChanged();
+  }, [handleEmailsChanged]);
+
+  // Fetch emails for a system group (no toggle logic — pure data fetch)
+  const fetchSystemGroupEmails = useCallback(async (group: SystemGroupKey) => {
+    setSystemGroupLoading(true);
+    try {
+      const res = await fetch(`/api/emails/system-groups/${group}?limit=100`);
+      if (!res.ok) {
+        setSystemGroupEmails([]);
+        return;
+      }
+      const data = await res.json();
+      // Normalize email_categories join data
+      const emails: EmailWithCategory[] = (data.emails ?? []).map((row: Record<string, unknown>) => {
+        const cat = row.email_categories as Record<string, unknown> | Record<string, unknown>[] | null;
+        const catObj = Array.isArray(cat) ? cat[0] : cat;
+        return {
+          ...row,
+          email_categories: undefined,
+          category: (catObj as Record<string, unknown>)?.category as string ?? null,
+          topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
+          priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+          confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+        } as unknown as EmailWithCategory;
+      });
+      setSystemGroupEmails(emails);
+    } catch {
+      setSystemGroupEmails([]);
+    } finally {
+      setSystemGroupLoading(false);
+    }
+  }, []);
+
+  // System group selection — toggle on/off, then fetch
+  const handleSelectSystemGroup = useCallback(async (group: SystemGroupKey) => {
+    // If clicking the same group, deselect
+    if (selectedSystemGroup === group) {
+      setSelectedSystemGroup(null);
+      setSystemGroupEmails([]);
+      setSelectedPath(null);
+      return;
+    }
+
+    setSelectedSystemGroup(group);
+    setSelectedPath('__system__');
+    setUnreadSelectedEmail(null);
+    fetchSystemGroupEmails(group);
+  }, [selectedSystemGroup, fetchSystemGroupEmails]);
+
+  // When emails are moved from within a system group, refresh the group
+  const handleSystemGroupEmailMoved = useCallback(() => {
+    fetchNodes(false);
+    setUnreadRefreshKey((k) => k + 1);
+    // Re-fetch the current system group (uses selectedSystemGroup via ref-like state read)
+    setSelectedSystemGroup((current) => {
+      if (current) fetchSystemGroupEmails(current);
+      return current;
+    });
+  }, [fetchNodes, fetchSystemGroupEmails]);
 
   // Persist sidebar layout to localStorage
   const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
@@ -174,7 +288,14 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   const treeContent = (
     <>
       {/* Unread section pinned at top */}
-      <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={(refreshKey ?? 0) + unreadRefreshKey} />
+      <UnreadSection onEmailRead={handleEmailsChanged} onSelectEmail={handleUnreadEmailSelected} refreshKey={(refreshKey ?? 0) + unreadRefreshKey} />
+
+      {/* System groups: Starred / Archived / Trash */}
+      <SystemGroups
+        selectedGroup={selectedSystemGroup}
+        onSelectGroup={handleSelectSystemGroup}
+        refreshKey={(refreshKey ?? 0) + unreadRefreshKey}
+      />
 
       {loading ? (
         <TreeSkeleton />
@@ -203,7 +324,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
               key={node.group_key}
               label={node.group_key}
               count={node.count}
-              dimension={config.levels[0].dimension}
+              dimension={config.levels[0]?.dimension ?? 'category'}
               level={0}
               path={[]}
               configId={config.id}
@@ -219,7 +340,40 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     </>
   );
 
-  const emailContent = selectedPath ? (
+  const emailContent = selectedPath === '__system__' && selectedSystemGroup ? (
+    systemGroupLoading ? (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+      </div>
+    ) : (
+      <>
+        <button
+          onClick={() => { setSelectedSystemGroup(null); setSelectedPath(null); }}
+          className="lg:hidden p-3 text-sm text-primary font-medium"
+        >
+          &larr; Back to tree
+        </button>
+        <EmailList emails={systemGroupEmails} onEmailMoved={handleSystemGroupEmailMoved} systemGroup={selectedSystemGroup} />
+      </>
+    )
+  ) : unreadSelectedEmail && selectedPath === '__unread__' ? (
+    <>
+      <button
+        onClick={() => { setUnreadSelectedEmail(null); setSelectedPath(null); }}
+        className="lg:hidden p-3 text-sm text-primary font-medium"
+      >
+        &larr; Back to tree
+      </button>
+      <EmailDetail
+        email={unreadSelectedEmail}
+        onBack={() => { setUnreadSelectedEmail(null); setSelectedPath(null); }}
+        onRemoved={handleUnreadEmailRemoved}
+        onUpdated={handleUnreadEmailUpdated}
+        onCategoryChanged={handleUnreadEmailCategoryChanged}
+      />
+    </>
+  ) : selectedPath && selectedPath !== '__unread__' ? (
     <>
       <button
         onClick={() => setSelectedPath(null)}
@@ -236,7 +390,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
       onSelectGroup={(groupKey) => {
         // Find the matching root node and trigger email selection
         const node = rootNodes.find((n) => n.group_key === groupKey);
-        if (node) {
+        if (node && config.levels[0]) {
           // Build the path key like TreeNode does
           const pathKey = `${config.levels[0].dimension}:${groupKey}`;
           setSelectedPath(pathKey);
@@ -282,11 +436,11 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           onLayoutChanged={handleLayoutChanged}
           {...(savedLayout ? { defaultLayout: savedLayout } : {})}
         >
-          <ResizablePanel id="tree" defaultSize="25" minSize="15" maxSize="40">
+          <ResizablePanel id="tree" defaultSize={25} minSize={10} maxSize={80}>
             <ScrollArea className="h-full">{treeContent}</ScrollArea>
           </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel id="emails" defaultSize="75" minSize="40">
+          <ResizableHandle />
+          <ResizablePanel id="emails" defaultSize={75} minSize={10}>
             <ScrollArea className="h-full">{emailContent}</ScrollArea>
           </ResizablePanel>
         </ResizablePanelGroup>

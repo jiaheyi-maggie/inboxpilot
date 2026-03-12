@@ -13,9 +13,11 @@ import {
   ArrowRight,
   Loader2,
   Zap,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { CategoryBadge } from './category-badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,15 +28,17 @@ import {
 import { CategoryPicker } from './category-picker';
 import { EmailDetail } from './email-detail';
 import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
-import type { EmailWithCategory, EmailAction } from '@/types';
+import type { EmailWithCategory, EmailAction, SystemGroupKey } from '@/types';
 
 interface EmailListProps {
   emails: EmailWithCategory[];
   /** Called when an email is structurally moved (archive, trash, reassign category) — triggers tree refresh */
   onEmailMoved?: () => void;
+  /** When set, updates that invalidate group membership are treated as removals (e.g. unstar in Starred group) */
+  systemGroup?: SystemGroupKey | null;
 }
 
-export function EmailList({ emails, onEmailMoved }: EmailListProps) {
+export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
@@ -53,14 +57,25 @@ export function EmailList({ emails, onEmailMoved }: EmailListProps) {
     [onEmailMoved, selectedEmailId]
   );
 
-  // Non-structural update (star, mark_read) — local state only, no tree refresh
+  // Non-structural update (star, mark_read) — local state only, no tree refresh.
+  // Exception: if the update invalidates system group membership (e.g. unstar in Starred group),
+  // treat it as a removal so the email disappears from the filtered list.
   const handleEmailUpdated = useCallback(
     (emailId: string, updates: Partial<EmailWithCategory>) => {
-      setLocalEmails((prev) =>
-        prev.map((e) => (e.id === emailId ? { ...e, ...updates } : e))
-      );
+      const invalidatesGroup =
+        (systemGroup === 'starred' && updates.is_starred === false);
+
+      if (invalidatesGroup) {
+        setLocalEmails((prev) => prev.filter((e) => e.id !== emailId));
+        setSelectedEmailId((current) => current === emailId ? null : current);
+        onEmailMoved?.();
+      } else {
+        setLocalEmails((prev) =>
+          prev.map((e) => (e.id === emailId ? { ...e, ...updates } : e))
+        );
+      }
     },
-    []
+    [systemGroup, onEmailMoved]
   );
 
   // Category change — structural, triggers tree refresh
@@ -133,6 +148,8 @@ function EmailRow({
   const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isTrashed = email.label_ids?.includes('TRASH') ?? false;
+
   const date = email.received_at
     ? format(new Date(email.received_at), 'MMM d')
     : '';
@@ -174,6 +191,11 @@ function EmailRow({
             break;
           case 'mark_unread':
             onUpdated(email.id, { is_read: false });
+            break;
+          case 'restore':
+            setExiting(true);
+            toast.success('Restored to inbox');
+            setTimeout(() => onRemoved(email.id), 300);
             break;
         }
       } catch {
@@ -271,7 +293,7 @@ function EmailRow({
                 {/* Tags */}
                 <div className="flex items-center gap-1.5 mt-1.5">
                   {email.category && (
-                    <Badge variant="category">{email.category}</Badge>
+                    <CategoryBadge category={email.category} />
                   )}
                   {email.priority === 'high' && (
                     <Badge variant="high">High</Badge>
@@ -302,6 +324,16 @@ function EmailRow({
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : isTrashed ? (
+              <>
+                <button
+                  onClick={() => executeAction('restore')}
+                  className="p-1 hover:bg-accent rounded transition-colors"
+                  title="Restore to inbox"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </>
             ) : (
               <>
                 <button

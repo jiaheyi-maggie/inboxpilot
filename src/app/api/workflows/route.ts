@@ -29,7 +29,7 @@ export async function GET() {
 
   // Attach last run info for each workflow
   const workflowIds = (workflows ?? []).map((w) => w.id);
-  let lastRuns: Record<string, { status: string; completed_at: string }> = {};
+  const lastRuns: Record<string, { status: string; completed_at: string }> = {};
 
   if (workflowIds.length > 0) {
     const { data: runs } = await serviceClient

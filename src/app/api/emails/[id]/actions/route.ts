@@ -5,11 +5,13 @@ import {
   markAsRead,
   markAsUnread,
   trashEmail,
+  untrashEmail,
   archiveEmail,
   starEmail,
   unstarEmail,
 } from '@/lib/gmail/client';
 import { categorizeEmails } from '@/lib/ai/categorize';
+import { buildActionResult } from '@/lib/email-utils';
 import type { GmailAccount, EmailAction, Email } from '@/types';
 
 export async function POST(
@@ -29,7 +31,7 @@ export async function POST(
   const body = await request.json();
   const action = body.action as EmailAction;
 
-  const validActions: EmailAction[] = ['mark_read', 'mark_unread', 'trash', 'archive', 'star', 'unstar'];
+  const validActions: EmailAction[] = ['mark_read', 'mark_unread', 'trash', 'archive', 'star', 'unstar', 'restore'];
   if (!action || !validActions.includes(action)) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   }
@@ -92,8 +94,10 @@ export async function POST(
           assignedCategory = catRow?.category ?? null;
         }
 
-        // 4. Schedule background categorization via after()
+        // 4. Schedule background categorization + workflow execution via after()
         if (needsCategorization) {
+          const accountForWorkflows = accountData;
+
           after(async () => {
             try {
               const bgServiceClient = createServiceClient();
@@ -105,6 +109,32 @@ export async function POST(
                   .from('emails')
                   .update({ categorization_status: 'done' })
                   .eq('id', emailId);
+
+                // Fire email_categorized workflows for this newly categorized email
+                try {
+                  const { runWorkflowsForEmail } = await import('@/lib/workflows/runner');
+                  const { data: catEmail } = await bgServiceClient
+                    .from('emails')
+                    .select('*, email_categories(category, topic, priority, confidence)')
+                    .eq('id', emailId)
+                    .single();
+
+                  if (catEmail) {
+                    const cat = (catEmail as Record<string, unknown>).email_categories;
+                    const catObj = Array.isArray(cat) ? cat[0] : cat;
+                    const emailWithCat = {
+                      ...catEmail,
+                      email_categories: undefined,
+                      category: (catObj as Record<string, unknown>)?.category as string ?? null,
+                      topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
+                      priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+                      confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+                    };
+                    await runWorkflowsForEmail(emailWithCat, 'email_categorized', accountForWorkflows);
+                  }
+                } catch (wfErr) {
+                  console.error(`[email-action] email_categorized workflow failed for ${emailId}:`, wfErr);
+                }
               } else {
                 console.error(`[email-action] Background categorization returned 0 for ${emailId}`);
                 await bgServiceClient
@@ -139,17 +169,22 @@ export async function POST(
           .update({ is_read: false })
           .eq('id', emailId);
         if (unreadErr) console.error('[email-action] DB update is_read failed:', unreadErr);
-        return NextResponse.json({ success: true, action: 'mark_unread' });
+        const unreadRes = buildActionResult('mark_unread', { affected: 1, failed: 0 }, unreadErr?.message ?? null);
+        return NextResponse.json(unreadRes.body, { status: unreadRes.status });
       }
 
       case 'trash': {
         await trashEmail(accountData, gmailMessageId);
+        const currentLabelsForTrash = (email.label_ids as string[]) ?? [];
+        const trashLabels = currentLabelsForTrash.filter((l: string) => l !== 'INBOX');
+        if (!trashLabels.includes('TRASH')) trashLabels.push('TRASH');
         const { error: trashErr } = await serviceClient
           .from('emails')
-          .delete()
+          .update({ label_ids: trashLabels })
           .eq('id', emailId);
-        if (trashErr) console.error('[email-action] DB delete failed:', trashErr);
-        return NextResponse.json({ success: true, action: 'trash', deleted: true });
+        if (trashErr) console.error('[email-action] DB update label_ids for trash failed:', trashErr);
+        const trashRes = buildActionResult('trash', { affected: 1, failed: 0 }, trashErr?.message ?? null);
+        return NextResponse.json(trashRes.body, { status: trashRes.status });
       }
 
       case 'archive': {
@@ -161,7 +196,8 @@ export async function POST(
           .update({ label_ids: newLabels })
           .eq('id', emailId);
         if (archiveErr) console.error('[email-action] DB update label_ids failed:', archiveErr);
-        return NextResponse.json({ success: true, action: 'archive' });
+        const archiveRes = buildActionResult('archive', { affected: 1, failed: 0 }, archiveErr?.message ?? null);
+        return NextResponse.json(archiveRes.body, { status: archiveRes.status });
       }
 
       case 'star': {
@@ -171,7 +207,8 @@ export async function POST(
           .update({ is_starred: true })
           .eq('id', emailId);
         if (starErr) console.error('[email-action] DB update is_starred failed:', starErr);
-        return NextResponse.json({ success: true, action: 'star' });
+        const starRes = buildActionResult('star', { affected: 1, failed: 0 }, starErr?.message ?? null);
+        return NextResponse.json(starRes.body, { status: starRes.status });
       }
 
       case 'unstar': {
@@ -181,7 +218,22 @@ export async function POST(
           .update({ is_starred: false })
           .eq('id', emailId);
         if (unstarErr) console.error('[email-action] DB update is_starred failed:', unstarErr);
-        return NextResponse.json({ success: true, action: 'unstar' });
+        const unstarRes = buildActionResult('unstar', { affected: 1, failed: 0 }, unstarErr?.message ?? null);
+        return NextResponse.json(unstarRes.body, { status: unstarRes.status });
+      }
+
+      case 'restore': {
+        await untrashEmail(accountData, gmailMessageId);
+        const currentLabelsForRestore = (email.label_ids as string[]) ?? [];
+        const restoreLabels = currentLabelsForRestore.filter((l: string) => l !== 'TRASH');
+        if (!restoreLabels.includes('INBOX')) restoreLabels.push('INBOX');
+        const { error: restoreErr } = await serviceClient
+          .from('emails')
+          .update({ label_ids: restoreLabels })
+          .eq('id', emailId);
+        if (restoreErr) console.error('[email-action] DB update label_ids for restore failed:', restoreErr);
+        const restoreRes = buildActionResult('restore', { affected: 1, failed: 0 }, restoreErr?.message ?? null);
+        return NextResponse.json(restoreRes.body, { status: restoreRes.status });
       }
 
       default:
@@ -190,7 +242,7 @@ export async function POST(
   } catch (err) {
     console.error(`[email-action] ${action} failed for ${emailId}:`, err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Action failed' },
+      { error: 'Action failed' },
       { status: 500 }
     );
   }
