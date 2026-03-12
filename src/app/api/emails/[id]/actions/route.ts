@@ -98,7 +98,7 @@ export async function POST(
             try {
               const bgServiceClient = createServiceClient();
               const emailForCat = { ...email, gmail_accounts: undefined } as unknown as Email;
-              const catResult = await categorizeEmails([emailForCat]);
+              const catResult = await categorizeEmails([emailForCat], user.id);
 
               if (catResult.categorized > 0) {
                 await bgServiceClient

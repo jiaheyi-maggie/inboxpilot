@@ -29,6 +29,8 @@ export interface Email {
   categorization_status: 'none' | 'pending' | 'done' | 'failed';
   has_attachment: boolean;
   label_ids: string[];
+  body_html: string | null;
+  body_text: string | null;
   created_at: string;
 }
 
@@ -144,6 +146,19 @@ export const CATEGORIES = [
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+// --- User Category (custom, stored in DB) ---
+
+export interface UserCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  sort_order: number;
+  is_default: boolean;
+  created_at: string;
+}
 
 // --- Workflow Types ---
 

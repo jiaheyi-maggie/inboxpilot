@@ -12,7 +12,7 @@ import {
   Trash2,
   ArrowRight,
   Loader2,
-  ExternalLink,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -24,38 +24,71 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CategoryPicker } from './category-picker';
+import { EmailDetail } from './email-detail';
+import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
 import type { EmailWithCategory, EmailAction } from '@/types';
 
 interface EmailListProps {
   emails: EmailWithCategory[];
-  onEmailUpdated?: () => void;
+  /** Called when an email is structurally moved (archive, trash, reassign category) — triggers tree refresh */
+  onEmailMoved?: () => void;
 }
 
-export function EmailList({ emails, onEmailUpdated }: EmailListProps) {
+export function EmailList({ emails, onEmailMoved }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
   // Sync local state when parent emails prop changes
   useEffect(() => {
     setLocalEmails(emails);
   }, [emails]);
 
+  // Structural removal (archive, trash) — update local state + notify tree
   const handleEmailRemoved = useCallback(
     (emailId: string) => {
       setLocalEmails((prev) => prev.filter((e) => e.id !== emailId));
-      onEmailUpdated?.();
+      if (selectedEmailId === emailId) setSelectedEmailId(null);
+      onEmailMoved?.();
     },
-    [onEmailUpdated]
+    [onEmailMoved, selectedEmailId]
   );
 
+  // Non-structural update (star, mark_read) — local state only, no tree refresh
   const handleEmailUpdated = useCallback(
     (emailId: string, updates: Partial<EmailWithCategory>) => {
       setLocalEmails((prev) =>
         prev.map((e) => (e.id === emailId ? { ...e, ...updates } : e))
       );
-      onEmailUpdated?.();
     },
-    [onEmailUpdated]
+    []
   );
+
+  // Category change — structural, triggers tree refresh
+  const handleCategoryChanged = useCallback(
+    (emailId: string, category: string) => {
+      setLocalEmails((prev) =>
+        prev.map((e) => (e.id === emailId ? { ...e, category } : e))
+      );
+      onEmailMoved?.();
+    },
+    [onEmailMoved]
+  );
+
+  const selectedEmail = selectedEmailId
+    ? localEmails.find((e) => e.id === selectedEmailId) ?? null
+    : null;
+
+  if (selectedEmail) {
+    return (
+      <EmailDetail
+        email={selectedEmail}
+        onBack={() => setSelectedEmailId(null)}
+        onRemoved={handleEmailRemoved}
+        onUpdated={handleEmailUpdated}
+        onCategoryChanged={handleCategoryChanged}
+      />
+    );
+  }
 
   if (localEmails.length === 0) {
     return (
@@ -71,8 +104,10 @@ export function EmailList({ emails, onEmailUpdated }: EmailListProps) {
         <EmailRow
           key={email.id}
           email={email}
+          onSelect={() => setSelectedEmailId(email.id)}
           onRemoved={handleEmailRemoved}
           onUpdated={handleEmailUpdated}
+          onCategoryChanged={handleCategoryChanged}
         />
       ))}
     </div>
@@ -81,15 +116,19 @@ export function EmailList({ emails, onEmailUpdated }: EmailListProps) {
 
 function EmailRow({
   email,
+  onSelect,
   onRemoved,
   onUpdated,
+  onCategoryChanged,
 }: {
   email: EmailWithCategory;
+  onSelect: () => void;
   onRemoved: (id: string) => void;
   onUpdated: (id: string, updates: Partial<EmailWithCategory>) => void;
+  onCategoryChanged: (id: string, category: string) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [showRuleDialog, setShowRuleDialog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,11 +136,6 @@ function EmailRow({
   const date = email.received_at
     ? format(new Date(email.received_at), 'MMM d')
     : '';
-  const fullDate = email.received_at
-    ? format(new Date(email.received_at), 'MMM d, yyyy h:mm a')
-    : '';
-
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.gmail_message_id}`;
 
   const executeAction = useCallback(
     async (action: EmailAction) => {
@@ -170,22 +204,14 @@ function EmailRow({
         toast.success(`Moved to ${category}`, {
           description: email.subject || '(no subject)',
         });
-        onUpdated(email.id, { category });
+        onCategoryChanged(email.id, category);
       } catch {
         setError('Network error');
       } finally {
         setLoading(false);
       }
     },
-    [email.id, email.subject, onUpdated]
-  );
-
-  const handleStarClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      executeAction(email.is_starred ? 'unstar' : 'star');
-    },
-    [email.is_starred, executeAction]
+    [email.id, email.subject, onCategoryChanged]
   );
 
   return (
@@ -195,180 +221,160 @@ function EmailRow({
           exiting ? 'max-h-0 opacity-0 scale-y-95' : 'max-h-[800px] opacity-100'
         }`}
       >
+        {/* Row: group for hover-reveal, relative for action overlay */}
         <div
-          className={`px-4 py-3 hover:bg-accent/50 transition-colors cursor-pointer ${
-            !email.is_read ? 'bg-primary/5' : ''
-          } ${isExpanded ? 'bg-accent/50' : ''}`}
-          onClick={() => setIsExpanded(!isExpanded)}
+          className={`group relative overflow-hidden cursor-pointer transition-colors
+            ${!email.is_read
+              ? 'bg-primary/8 border-l-[3px] border-l-primary'
+              : 'hover:bg-accent/50 border-l-[3px] border-l-transparent'
+            }
+          `}
+          onClick={onSelect}
         >
-          <div className="flex items-start gap-3">
-            <div className="flex-1 min-w-0">
-              {/* Sender + actions row */}
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-sm truncate ${
-                    !email.is_read ? 'font-semibold text-foreground' : 'text-muted-foreground'
+          <div className="px-4 py-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="flex-1 min-w-0">
+                {/* Sender + date row */}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-sm truncate ${
+                      !email.is_read ? 'font-bold text-foreground' : 'font-normal text-muted-foreground'
+                    }`}
+                  >
+                    {email.sender_name || email.sender_email || 'Unknown'}
+                  </span>
+                  <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                    {email.has_attachment && (
+                      <Paperclip className="h-3 w-3 text-muted-foreground" />
+                    )}
+                    {email.is_starred && (
+                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                    )}
+                    <span className="text-xs text-muted-foreground">{date}</span>
+                  </div>
+                </div>
+
+                {/* Subject */}
+                <p
+                  className={`text-sm mt-0.5 truncate ${
+                    !email.is_read ? 'font-medium text-foreground' : 'text-muted-foreground'
                   }`}
                 >
-                  {email.sender_name || email.sender_email || 'Unknown'}
-                </span>
-                <div className="flex items-center gap-1 ml-auto flex-shrink-0">
-                  {email.has_attachment && (
-                    <Paperclip className="h-3 w-3 text-muted-foreground" />
+                  {email.subject || '(no subject)'}
+                </p>
+
+                {/* Snippet */}
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {email.snippet}
+                </p>
+
+                {/* Tags */}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {email.category && (
+                    <Badge variant="category">{email.category}</Badge>
                   )}
-                  <button
-                    onClick={handleStarClick}
-                    className="p-0.5 hover:bg-accent rounded transition-colors"
-                  >
-                    <Star
-                      className={`h-3.5 w-3.5 transition-colors ${
-                        email.is_starred
-                          ? 'fill-amber-400 text-amber-400'
-                          : 'text-muted-foreground/50 hover:text-muted-foreground'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-xs text-muted-foreground">{date}</span>
-                  {/* Action menu */}
-                  <div className="relative">
-                    {loading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-0.5 hover:bg-accent rounded transition-colors"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              executeAction(email.is_read ? 'mark_unread' : 'mark_read');
-                            }}
-                          >
-                            {email.is_read ? (
-                              <>
-                                <Mail className="h-3.5 w-3.5" />
-                                Mark as unread
-                              </>
-                            ) : (
-                              <>
-                                <MailOpen className="h-3.5 w-3.5" />
-                                Mark as read
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              executeAction('archive');
-                            }}
-                          >
-                            <Archive className="h-3.5 w-3.5" />
-                            Archive
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              executeAction(email.is_starred ? 'unstar' : 'star');
-                            }}
-                          >
-                            <Star className="h-3.5 w-3.5" />
-                            {email.is_starred ? 'Unstar' : 'Star'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowPicker(true);
-                            }}
-                          >
-                            <ArrowRight className="h-3.5 w-3.5" />
-                            Move to...
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              executeAction('trash');
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Trash
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
+                  {email.priority === 'high' && (
+                    <Badge variant="high">High</Badge>
+                  )}
+                  {email.priority === 'low' && (
+                    <Badge variant="low">Low</Badge>
+                  )}
+                  {email.topic && (
+                    <span className="text-xs text-muted-foreground">{email.topic}</span>
+                  )}
                 </div>
-              </div>
 
-              {/* Subject */}
-              <p
-                className={`text-sm mt-0.5 ${isExpanded ? '' : 'truncate'} ${
-                  !email.is_read ? 'font-medium text-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                {email.subject || '(no subject)'}
-              </p>
-
-              {/* Snippet */}
-              <p className={`text-xs text-muted-foreground mt-0.5 ${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
-                {email.snippet}
-              </p>
-
-              {/* Tags */}
-              <div className="flex items-center gap-1.5 mt-1.5">
-                {email.category && (
-                  <Badge variant="category">{email.category}</Badge>
-                )}
-                {email.priority === 'high' && (
-                  <Badge variant="high">High</Badge>
-                )}
-                {email.priority === 'low' && (
-                  <Badge variant="low">Low</Badge>
-                )}
-                {email.topic && (
-                  <span className="text-xs text-muted-foreground">{email.topic}</span>
+                {/* Error feedback */}
+                {error && (
+                  <p className="text-xs text-destructive mt-1">{error}</p>
                 )}
               </div>
-
-              {/* Expanded details */}
-              <div
-                className={`grid transition-all duration-200 ease-in-out ${
-                  isExpanded ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'
-                }`}
-              >
-                <div className="overflow-hidden">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground pt-1 border-t border-border">
-                    <span>From: {email.sender_email}</span>
-                    <span>{fullDate}</span>
-                    {email.has_attachment && <span>📎 Attachment</span>}
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <a
-                      href={gmailUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Open in Gmail
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              {/* Error feedback */}
-              {error && (
-                <p className="text-xs text-destructive mt-1">{error}</p>
-              )}
             </div>
+          </div>
+
+          {/* Hover-reveal action overlay */}
+          <div
+            className="absolute right-3 top-1/2 -translate-y-1/2
+              flex items-center gap-1 px-2 py-1 rounded-lg
+              bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm
+              opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                <button
+                  onClick={() => executeAction(email.is_starred ? 'unstar' : 'star')}
+                  className="p-1 hover:bg-accent rounded transition-colors"
+                  title={email.is_starred ? 'Unstar' : 'Star'}
+                >
+                  <Star
+                    className={`h-3.5 w-3.5 ${
+                      email.is_starred
+                        ? 'fill-amber-400 text-amber-400'
+                        : 'text-muted-foreground'
+                    }`}
+                  />
+                </button>
+                <button
+                  onClick={() => executeAction('archive')}
+                  className="p-1 hover:bg-accent rounded transition-colors"
+                  title="Archive"
+                >
+                  <Archive className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+                <button
+                  onClick={() => executeAction('trash')}
+                  className="p-1 hover:bg-accent rounded transition-colors"
+                  title="Trash"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="p-1 hover:bg-accent rounded transition-colors">
+                      <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem
+                      onClick={() =>
+                        executeAction(email.is_read ? 'mark_unread' : 'mark_read')
+                      }
+                    >
+                      {email.is_read ? (
+                        <>
+                          <Mail className="h-3.5 w-3.5" />
+                          Mark as unread
+                        </>
+                      ) : (
+                        <>
+                          <MailOpen className="h-3.5 w-3.5" />
+                          Mark as read
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowPicker(true)}>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                      Move to...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowRuleDialog(true)}>
+                      <Zap className="h-3.5 w-3.5" />
+                      Create rule...
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => executeAction('trash')}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Trash
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -378,6 +384,13 @@ function EmailRow({
           onSelect={handleCategoryChange}
           onClose={() => setShowPicker(false)}
           excludeCategory={email.category ?? undefined}
+        />
+      )}
+
+      {showRuleDialog && (
+        <QuickRuleDialog
+          email={email}
+          onClose={() => setShowRuleDialog(false)}
         />
       )}
     </>

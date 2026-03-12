@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
 import { UnreadSection } from './unread-section';
+import { InboxOverview } from './inbox-overview';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -48,8 +49,8 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fetchNodes = useCallback(async () => {
-    setLoading(true);
+  const fetchNodes = useCallback(async (showSkeleton = true) => {
+    if (showSkeleton) setLoading(true);
     setFetchError(false);
     try {
       const params = new URLSearchParams({
@@ -69,12 +70,12 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
       console.error('Failed to fetch tree nodes:', err);
       setFetchError(true);
     } finally {
-      setLoading(false);
+      if (showSkeleton) setLoading(false);
     }
   }, [config.id]);
 
   useEffect(() => {
-    fetchNodes();
+    fetchNodes(true);
   }, [fetchNodes, refreshKey]);
 
   // Debounced refresh: coalesce rapid realtime events (e.g. during bulk sync)
@@ -85,7 +86,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
         toast.info(showToast.title, { description: showToast.description });
       }
       setUnreadRefreshKey((k) => k + 1);
-      fetchNodes();
+      fetchNodes(false);
     }, 500); // 500ms debounce — coalesces burst events from sync
   }, [fetchNodes]);
 
@@ -141,9 +142,15 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     []
   );
 
-  // Refresh tree + unread section when emails change
+  // Structural change (archive, trash, reassign) — silently refresh tree + unread
+  const handleEmailMoved = useCallback(() => {
+    fetchNodes(false);
+    setUnreadRefreshKey((k) => k + 1);
+  }, [fetchNodes]);
+
+  // For unread section: also a structural change
   const handleEmailsChanged = useCallback(() => {
-    fetchNodes();
+    fetchNodes(false);
     setUnreadRefreshKey((k) => k + 1);
   }, [fetchNodes]);
 
@@ -176,7 +183,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           <AlertCircle className="h-6 w-6 text-destructive mx-auto mb-2" />
           <p className="text-sm font-medium text-destructive">Failed to load emails</p>
           <button
-            onClick={fetchNodes}
+            onClick={() => fetchNodes(true)}
             className="text-sm text-primary mt-2 hover:underline"
           >
             Retry
@@ -220,12 +227,37 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
       >
         &larr; Back to tree
       </button>
-      <EmailList emails={selectedEmails} onEmailUpdated={handleEmailsChanged} />
+      <EmailList emails={selectedEmails} onEmailMoved={handleEmailMoved} />
     </>
   ) : (
-    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-      Select a group to view emails
-    </div>
+    <InboxOverview
+      rootNodes={rootNodes}
+      dimensionLabel={config.levels[0]?.label ?? config.levels[0]?.dimension ?? 'Group'}
+      onSelectGroup={(groupKey) => {
+        // Find the matching root node and trigger email selection
+        const node = rootNodes.find((n) => n.group_key === groupKey);
+        if (node) {
+          // Build the path key like TreeNode does
+          const pathKey = `${config.levels[0].dimension}:${groupKey}`;
+          setSelectedPath(pathKey);
+          // Always fetch leaf-level emails — overview is a shortcut to see
+          // all emails in a group, not to drill into sub-levels
+          const params = new URLSearchParams({
+            level: String(config.levels.length),
+            configId: config.id,
+            [`filter.${config.levels[0].dimension}`]: groupKey,
+          });
+          fetch(`/api/emails?${params}`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.type === 'emails') {
+                setSelectedEmails(data.data);
+              }
+            })
+            .catch(console.error);
+        }
+      }}
+    />
   );
 
   // Mobile layout: stack vertically, show one panel at a time

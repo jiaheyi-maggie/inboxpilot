@@ -23,16 +23,26 @@ export async function PUT(
     return NextResponse.json({ error: 'Missing category' }, { status: 400 });
   }
 
-  if (!(CATEGORIES as readonly string[]).includes(category)) {
+  const serviceClient = createServiceClient();
+
+  // Validate category exists for this user (custom categories, E3)
+  const { data: userCategories } = await serviceClient
+    .from('user_categories')
+    .select('name')
+    .eq('user_id', user.id);
+
+  // Validate category against user's custom categories, or fallback defaults
+  const validNames = userCategories && userCategories.length > 0
+    ? userCategories.map((c) => c.name)
+    : [...CATEGORIES];
+  if (!validNames.includes(category)) {
     return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
   }
-
-  const serviceClient = createServiceClient();
 
   // Verify email ownership via gmail_accounts
   const { data: email } = await serviceClient
     .from('emails')
-    .select('id, gmail_accounts!inner(user_id)')
+    .select('id, sender_email, sender_domain, subject, gmail_accounts!inner(user_id)')
     .eq('id', emailId)
     .single();
 
@@ -44,6 +54,13 @@ export async function PUT(
   if (accountData.user_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+
+  // Fetch current category before updating (for correction tracking)
+  const { data: currentCat } = await serviceClient
+    .from('email_categories')
+    .select('category')
+    .eq('email_id', emailId)
+    .single();
 
   // Upsert category (manual override = confidence 1.0)
   const { data, error } = await serviceClient
@@ -73,6 +90,22 @@ export async function PUT(
     .eq('id', emailId);
   if (catError) {
     console.error('[category] Failed to mark email as categorized:', catError);
+  }
+
+  // Record correction if category actually changed (E4: learning loop)
+  if (currentCat && currentCat.category && currentCat.category !== category) {
+    const { error: corrErr } = await serviceClient
+      .from('category_corrections')
+      .insert({
+        user_id: user.id,
+        email_id: emailId,
+        original_category: currentCat.category,
+        corrected_category: category,
+        sender_email: (email as Record<string, unknown>).sender_email as string | null,
+        sender_domain: (email as Record<string, unknown>).sender_domain as string | null,
+        subject: (email as Record<string, unknown>).subject as string | null,
+      });
+    if (corrErr) console.error('[category] Failed to record correction:', corrErr);
   }
 
   return NextResponse.json({ success: true, data });

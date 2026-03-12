@@ -101,8 +101,9 @@ export function TreeNode({
     <div>
       <button
         onClick={toggle}
-        className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-all duration-150
+        className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-all duration-150 overflow-hidden min-w-0
           ${isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'}
+          ${!isLeaf && expanded ? 'bg-accent/30' : ''}
           ${loading ? 'opacity-70' : ''}
         `}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
@@ -114,26 +115,24 @@ export function TreeNode({
         ) : expanded ? (
           <>
             <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
-            <FolderOpen className="h-4 w-4 flex-shrink-0 text-amber-500" />
+            <FolderOpen className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           </>
         ) : (
           <>
             <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
-            <Folder className="h-4 w-4 flex-shrink-0 text-amber-500" />
+            <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           </>
         )}
         <span className="flex-1 truncate font-medium">{displayLabel}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
-        {!isLeaf && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <TreeNodeActions
-              path={currentPath}
-              configId={configId}
-              nodeLabel={displayLabel}
-              onActionComplete={onTreeChanged}
-            />
-          </span>
-        )}
+        <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs tabular-nums flex-shrink-0">{count}</span>
+        <span onClick={(e) => e.stopPropagation()} className="flex-shrink-0">
+          <TreeNodeActions
+            path={currentPath}
+            configId={configId}
+            nodeLabel={displayLabel}
+            onActionComplete={onTreeChanged}
+          />
+        </span>
       </button>
 
       {/* Animated children container */}
@@ -174,16 +173,14 @@ function formatLabel(label: string, dimension: DimensionKey): string {
     case 'is_read':
       return label === 'true' ? 'Read' : 'Unread';
     case 'date_month': {
-      try {
-        const [year, month] = label.split('-');
-        const date = new Date(parseInt(year), parseInt(month) - 1);
-        return date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-        });
-      } catch {
-        return label;
+      const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+      const parts = label.split('-');
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      if (monthIdx >= 0 && monthIdx < 12) {
+        return `${MONTH_NAMES[monthIdx]} ${parts[0]}`;
       }
+      return label;
     }
     default:
       return label;

@@ -42,21 +42,51 @@ export async function GET(request: NextRequest) {
   console.log(`[cron] Found ${stuckEmails.length} emails stuck in pending categorization`);
 
   try {
-    const result = await categorizeEmails(stuckEmails as Email[]);
-    console.log(`[cron] Recovery categorization done: categorized=${result.categorized}, errors=${result.errors}`);
+    // Group stuck emails by gmail_account_id to resolve user_id per account
+    const byAccount = new Map<string, Email[]>();
+    for (const e of stuckEmails as Email[]) {
+      const key = e.gmail_account_id;
+      if (!byAccount.has(key)) byAccount.set(key, []);
+      byAccount.get(key)!.push(e);
+    }
+
+    // Resolve user_id for each account
+    const accountIds = [...byAccount.keys()];
+    const { data: accounts } = await serviceClient
+      .from('gmail_accounts')
+      .select('id, user_id')
+      .in('id', accountIds);
+    const accountUserMap = new Map<string, string>();
+    if (accounts) {
+      for (const a of accounts) accountUserMap.set(a.id, a.user_id);
+    }
+
+    let totalCategorized = 0;
+    let totalErrors = 0;
+
+    for (const [accountId, emails] of byAccount) {
+      const userId = accountUserMap.get(accountId);
+      if (!userId) {
+        console.warn(`[cron] No user_id found for account ${accountId}, skipping ${emails.length} emails`);
+        totalErrors += emails.length;
+        continue;
+      }
+      const result = await categorizeEmails(emails, userId);
+      totalCategorized += result.categorized;
+      totalErrors += result.errors;
+    }
+
+    console.log(`[cron] Recovery categorization done: categorized=${totalCategorized}, errors=${totalErrors}`);
 
     // Mark any remaining failures
-    if (result.errors > 0) {
-      // categorizeEmails already marks successful ones as is_categorized=true
-      // Mark the ones that failed
-      const categorizedIds = new Set<string>();
-      // Re-fetch to find which ones got categorized
+    if (totalErrors > 0) {
       const { data: nowCategorized } = await serviceClient
         .from('emails')
         .select('id')
         .in('id', stuckEmails.map((e) => e.id))
         .eq('is_categorized', true);
 
+      const categorizedIds = new Set<string>();
       if (nowCategorized) {
         nowCategorized.forEach((e) => categorizedIds.add(e.id));
       }
@@ -75,8 +105,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      recovered: result.categorized,
-      errors: result.errors,
+      recovered: totalCategorized,
+      errors: totalErrors,
     });
   } catch (err) {
     console.error('[cron] Recovery categorization failed:', err);

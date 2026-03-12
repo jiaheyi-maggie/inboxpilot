@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { WorkflowList } from '@/components/workflows/workflow-list';
 import { WorkflowCanvas } from '@/components/workflows/workflow-canvas';
+import { PromptRuleCreator } from '@/components/workflows/prompt-rule-creator';
 import type { Workflow, WorkflowGraph } from '@/types';
 
 interface WorkflowClientProps {
@@ -106,6 +107,15 @@ export function WorkflowClient({ initialWorkflows }: WorkflowClientProps) {
     []
   );
 
+  const handleRuleCreated = useCallback((workflow: Workflow) => {
+    setWorkflows((prev) => [workflow, ...prev]);
+  }, []);
+
+  const handleEditRuleInCanvas = useCallback((workflow: Workflow) => {
+    setWorkflows((prev) => [workflow, ...prev]);
+    setEditingId(workflow.id);
+  }, []);
+
   // When editing, show the canvas with a back button sub-header
   if (editingId && editingWorkflow) {
     return (
@@ -127,12 +137,22 @@ export function WorkflowClient({ initialWorkflows }: WorkflowClientProps) {
   }
 
   return (
-    <WorkflowList
-      workflows={workflows}
-      onEdit={setEditingId}
-      onCreate={handleCreate}
-      onDelete={handleDelete}
-      onToggleEnabled={handleToggleEnabled}
-    />
+    <div className="h-full flex flex-col">
+      <div className="px-6 pt-6 pb-4">
+        <PromptRuleCreator
+          onWorkflowCreated={handleRuleCreated}
+          onEditInCanvas={handleEditRuleInCanvas}
+        />
+      </div>
+      <div className="flex-1 overflow-auto">
+        <WorkflowList
+          workflows={workflows}
+          onEdit={setEditingId}
+          onCreate={handleCreate}
+          onDelete={handleDelete}
+          onToggleEnabled={handleToggleEnabled}
+        />
+      </div>
+    </div>
   );
 }

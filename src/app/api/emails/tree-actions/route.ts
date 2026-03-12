@@ -47,11 +47,22 @@ export async function POST(request: NextRequest) {
   if (action === 'reassign' && !newCategory) {
     return NextResponse.json({ error: 'Missing newCategory for reassign' }, { status: 400 });
   }
-  if (action === 'reassign' && newCategory && !(CATEGORIES as readonly string[]).includes(newCategory)) {
-    return NextResponse.json({ error: 'Invalid target category' }, { status: 400 });
-  }
 
   const serviceClient = createServiceClient();
+
+  if (action === 'reassign' && newCategory) {
+    // Validate against user's custom categories, falling back to defaults
+    const { data: userCategories } = await serviceClient
+      .from('user_categories')
+      .select('name')
+      .eq('user_id', user.id);
+    const validNames = userCategories && userCategories.length > 0
+      ? userCategories.map((c) => c.name)
+      : [...CATEGORIES];
+    if (!validNames.includes(newCategory)) {
+      return NextResponse.json({ error: 'Invalid target category' }, { status: 400 });
+    }
+  }
 
   // Get user's Gmail account
   const { data: account } = await serviceClient
@@ -192,7 +203,10 @@ export async function POST(request: NextRequest) {
               .eq('id', e.id as string);
           })
         );
-        const archiveDbFailed = archiveDbResults.filter((r) => r.status === 'rejected').length;
+        // Supabase client never throws — check both rejected promises and fulfilled-with-error
+        const archiveDbFailed = archiveDbResults.filter(
+          (r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value?.error)
+        ).length;
         if (archiveDbFailed > 0) {
           console.error(`[tree-action] ${archiveDbFailed} DB label updates failed during archive`);
         }
@@ -200,7 +214,8 @@ export async function POST(request: NextRequest) {
           success: true,
           action: 'archive',
           affected: archiveResult.archived,
-          failed: archiveResult.failed,
+          gmailFailed: archiveResult.failed,
+          dbFailed: archiveDbFailed,
         });
       }
 
@@ -255,32 +270,66 @@ export async function POST(request: NextRequest) {
       }
 
       case 'reassign': {
-        // Reassign only works for categorized emails (category-table dimension)
-        const categorizedIds = rows
-          .filter((r) => getCategory(r.email_categories) != null)
-          .map((r) => r.id as string);
+        // Split into already-categorized vs uncategorized emails
+        const categorizedIds: string[] = [];
+        const uncategorizedIds: string[] = [];
+        for (const r of rows) {
+          if (getCategory(r.email_categories) != null) {
+            categorizedIds.push(r.id as string);
+          } else {
+            uncategorizedIds.push(r.id as string);
+          }
+        }
 
-        if (categorizedIds.length === 0) {
+        if (categorizedIds.length === 0 && uncategorizedIds.length === 0) {
           return NextResponse.json({ success: true, action: 'reassign', affected: 0 });
         }
 
-        const { error: updateError } = await serviceClient
-          .from('email_categories')
-          .update({
+        const now = new Date().toISOString();
+
+        // Update existing email_categories rows
+        if (categorizedIds.length > 0) {
+          const { error: updateError } = await serviceClient
+            .from('email_categories')
+            .update({
+              category: newCategory,
+              confidence: 1.0,
+              categorized_at: now,
+            })
+            .in('email_id', categorizedIds);
+
+          if (updateError) {
+            return NextResponse.json({ error: updateError.message }, { status: 500 });
+          }
+        }
+
+        // Insert email_categories rows for uncategorized emails
+        if (uncategorizedIds.length > 0) {
+          const newRows = uncategorizedIds.map((id) => ({
+            email_id: id,
             category: newCategory,
             confidence: 1.0,
-            categorized_at: new Date().toISOString(),
-          })
-          .in('email_id', categorizedIds);
+            categorized_at: now,
+          }));
+          const { error: insertError } = await serviceClient
+            .from('email_categories')
+            .upsert(newRows, { onConflict: 'email_id' });
 
-        if (updateError) {
-          return NextResponse.json({ error: updateError.message }, { status: 500 });
+          if (insertError) {
+            console.error('[tree-action] Failed to insert categories for uncategorized emails:', insertError);
+          } else {
+            // Mark newly categorized emails
+            await serviceClient
+              .from('emails')
+              .update({ is_categorized: true, categorization_status: 'done' })
+              .in('id', uncategorizedIds);
+          }
         }
 
         return NextResponse.json({
           success: true,
           action: 'reassign',
-          affected: categorizedIds.length,
+          affected: categorizedIds.length + uncategorizedIds.length,
           newCategory,
         });
       }

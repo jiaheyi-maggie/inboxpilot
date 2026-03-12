@@ -141,7 +141,7 @@ export async function POST() {
       if (uncategorized.length > 0) {
         try {
           console.log(`[sync-bg] Starting background categorization of ${uncategorized.length} emails`);
-          const catResult = await categorizeEmails(uncategorized);
+          const catResult = await categorizeEmails(uncategorized, user.id);
           console.log(`[sync-bg] Background categorization done: categorized=${catResult.categorized}, errors=${catResult.errors}`);
 
           if (jobId) {

@@ -339,7 +339,7 @@ async function executeAction(
       // Also mark the email as categorized
       await serviceClient
         .from('emails')
-        .update({ is_categorized: true, categorization_status: 'completed' })
+        .update({ is_categorized: true, categorization_status: 'done' })
         .eq('id', email.id);
       break;
     }

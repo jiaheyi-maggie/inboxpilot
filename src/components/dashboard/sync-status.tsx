@@ -58,7 +58,7 @@ export function SyncStatus({ onSyncComplete }: SyncStatusProps) {
       {result && (
         <span
           className={`text-xs ${
-            result.success ? 'text-green-600' : 'text-red-500'
+            result.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'
           } flex items-center gap-1`}
         >
           {result.success ? (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -19,6 +19,31 @@ import type {
   WorkflowConditionOperator,
 } from '@/types';
 
+/** Hook to fetch user categories from API, with hardcoded fallback. */
+function useCategories() {
+  const [categories, setCategories] = useState<string[]>([...CATEGORIES]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/categories');
+        if (res.ok) {
+          const { categories: cats } = await res.json();
+          if (!cancelled && cats && cats.length > 0) {
+            setCategories(cats.map((c: { name: string }) => c.name));
+          }
+        }
+      } catch {
+        // keep defaults
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return categories;
+}
+
 interface NodeConfigSheetProps {
   node: WorkflowNode | null;
   onClose: () => void;
@@ -26,6 +51,8 @@ interface NodeConfigSheetProps {
 }
 
 export function NodeConfigSheet({ node, onClose, onUpdate }: NodeConfigSheetProps) {
+  const categories = useCategories();
+
   if (!node) return null;
 
   return (
@@ -39,18 +66,21 @@ export function NodeConfigSheet({ node, onClose, onUpdate }: NodeConfigSheetProp
             <TriggerConfig
               data={node.data as TriggerNodeData}
               onChange={(data) => onUpdate(node.id, data)}
+              categories={categories}
             />
           )}
           {node.type === 'condition' && (
             <ConditionConfig
               data={node.data as ConditionNodeData}
               onChange={(data) => onUpdate(node.id, data)}
+              categories={categories}
             />
           )}
           {node.type === 'action' && (
             <ActionConfig
               data={node.data as ActionNodeData}
               onChange={(data) => onUpdate(node.id, data)}
+              categories={categories}
             />
           )}
         </div>
@@ -71,9 +101,11 @@ const TRIGGER_OPTIONS: { value: WorkflowTriggerType; label: string }[] = [
 function TriggerConfig({
   data,
   onChange,
+  categories,
 }: {
   data: TriggerNodeData;
   onChange: (data: TriggerNodeData) => void;
+  categories: string[];
 }) {
   return (
     <>
@@ -117,7 +149,7 @@ function TriggerConfig({
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             <option value="">Any category</option>
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
               </option>
@@ -175,9 +207,11 @@ const CONDITION_OPERATORS: { value: WorkflowConditionOperator; label: string }[]
 function ConditionConfig({
   data,
   onChange,
+  categories,
 }: {
   data: ConditionNodeData;
   onChange: (data: ConditionNodeData) => void;
+  categories: string[];
 }) {
   const isBooleanOp = data.operator === 'is_true' || data.operator === 'is_false';
 
@@ -224,7 +258,7 @@ function ConditionConfig({
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="">Select...</option>
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -271,9 +305,11 @@ const ACTION_OPTIONS: { value: WorkflowActionType; label: string }[] = [
 function ActionConfig({
   data,
   onChange,
+  categories,
 }: {
   data: ActionNodeData;
   onChange: (data: ActionNodeData) => void;
+  categories: string[];
 }) {
   return (
     <>
@@ -303,7 +339,7 @@ function ActionConfig({
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             <option value="">Select category...</option>
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
               </option>

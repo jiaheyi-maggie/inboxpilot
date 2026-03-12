@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { GroupingBuilder } from '@/components/settings/grouping-builder';
+import { CategoryManager } from '@/components/settings/category-manager';
 import type { GroupingLevel } from '@/types';
 
 interface SettingsClientProps {
@@ -76,6 +77,15 @@ export function SettingsClient({
         initialDateEnd={initialDateEnd}
         onSave={handleSave}
       />
+
+      {/* Categories section */}
+      <div>
+        <h2 className="text-sm font-semibold mb-1">Categories</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          Customize how your emails are categorized. Add descriptions to help the AI understand each category.
+        </p>
+        <CategoryManager />
+      </div>
 
       {/* Behavior section */}
       <div>

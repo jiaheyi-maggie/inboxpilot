@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       const uncategorized = await getUncategorizedEmails(account.id);
       let categorizeResult = { categorized: 0, errors: 0 };
       if (uncategorized.length > 0) {
-        categorizeResult = await categorizeEmails(uncategorized);
+        categorizeResult = await categorizeEmails(uncategorized, account.user_id);
       }
 
       if (job) {

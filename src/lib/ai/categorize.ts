@@ -1,62 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createServiceClient } from '@/lib/supabase/server';
+import { CATEGORIES } from '@/types';
 import type { Email } from '@/types';
 
 const BATCH_SIZE = 25;
 
 const anthropic = new Anthropic();
-
-const CATEGORIZE_TOOL: Anthropic.Messages.Tool = {
-  name: 'categorize_emails',
-  description: 'Categorize a batch of emails by category, topic, and priority.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      results: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            email_id: { type: 'string', description: 'The email ID' },
-            category: {
-              type: 'string',
-              enum: [
-                'Work',
-                'Personal',
-                'Finance',
-                'Shopping',
-                'Travel',
-                'Social',
-                'Newsletters',
-                'Notifications',
-                'Promotions',
-                'Other',
-              ],
-              description: 'Primary category',
-            },
-            topic: {
-              type: 'string',
-              description:
-                'Specific topic like "Project Updates", "Receipts", "Flight Booking"',
-            },
-            priority: {
-              type: 'string',
-              enum: ['high', 'normal', 'low'],
-              description:
-                'Priority: high for urgent/important, low for noise/promotions',
-            },
-            confidence: {
-              type: 'number',
-              description: 'Confidence score 0.0-1.0',
-            },
-          },
-          required: ['email_id', 'category', 'topic', 'priority', 'confidence'],
-        },
-      },
-    },
-    required: ['results'],
-  },
-};
 
 interface CategorizeResult {
   email_id: string;
@@ -66,12 +15,123 @@ interface CategorizeResult {
   confidence: number;
 }
 
+/**
+ * Fetch user's custom categories. Falls back to hardcoded defaults
+ * if the user_categories table doesn't exist yet or has no rows.
+ */
+async function getUserCategories(userId: string): Promise<{ name: string; description: string | null }[]> {
+  const serviceClient = createServiceClient();
+  const { data, error } = await serviceClient
+    .from('user_categories')
+    .select('name, description')
+    .eq('user_id', userId)
+    .order('sort_order', { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    // Fall back to hardcoded defaults (pre-migration or no categories seeded)
+    return CATEGORIES.map((name) => ({ name, description: null }));
+  }
+
+  return data;
+}
+
+/**
+ * Fetch recent category corrections for this user to include as
+ * few-shot learning context in the categorization prompt.
+ */
+async function getRecentCorrections(userId: string, limit = 20): Promise<
+  { original_category: string; corrected_category: string; sender_email: string | null; sender_domain: string | null; subject: string | null }[]
+> {
+  const serviceClient = createServiceClient();
+  const { data, error } = await serviceClient
+    .from('category_corrections')
+    .select('original_category, corrected_category, sender_email, sender_domain, subject')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return data;
+}
+
+/**
+ * Build the Claude tool schema with dynamic category names.
+ */
+function buildCategorizeTool(categoryNames: string[]): Anthropic.Messages.Tool {
+  return {
+    name: 'categorize_emails',
+    description: 'Categorize a batch of emails by category, topic, and priority.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        results: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              email_id: { type: 'string', description: 'The email ID' },
+              category: {
+                type: 'string',
+                enum: categoryNames,
+                description: 'Primary category',
+              },
+              topic: {
+                type: 'string',
+                description:
+                  'Specific topic like "Project Updates", "Receipts", "Flight Booking"',
+              },
+              priority: {
+                type: 'string',
+                enum: ['high', 'normal', 'low'],
+                description:
+                  'Priority: high for urgent/action-required, low for noise/promotions',
+              },
+              confidence: {
+                type: 'number',
+                description: 'Confidence score 0.0-1.0',
+              },
+            },
+            required: ['email_id', 'category', 'topic', 'priority', 'confidence'],
+          },
+        },
+      },
+      required: ['results'],
+    },
+  };
+}
+
 export async function categorizeEmails(
-  emails: Email[]
+  emails: Email[],
+  userId: string,
 ): Promise<{ categorized: number; errors: number }> {
   const serviceClient = createServiceClient();
   let categorized = 0;
   let errors = 0;
+
+  // Fetch user's custom categories (E3)
+  const userCategories = await getUserCategories(userId);
+  const categoryNames = userCategories.map((c) => c.name);
+  const tool = buildCategorizeTool(categoryNames);
+
+  // Build category descriptions for the prompt
+  const categoryDescriptions = userCategories
+    .filter((c) => c.description)
+    .map((c) => `- ${c.name}: ${c.description}`)
+    .join('\n');
+
+  // Fetch recent corrections for learning context (E4)
+  const corrections = await getRecentCorrections(userId);
+  const correctionContext = corrections.length > 0
+    ? `\n\nUser correction history (learn from these preferences — when in doubt, follow the user's pattern):\n${
+      corrections
+        .map((c) => {
+          const from = c.sender_email ?? c.sender_domain ?? 'unknown sender';
+          const subj = c.subject ? ` about "${c.subject}"` : '';
+          return `- Email from "${from}"${subj} was recategorized from "${c.original_category}" → "${c.corrected_category}"`;
+        })
+        .join('\n')
+    }`
+    : '';
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
@@ -84,10 +144,17 @@ export async function categorizeEmails(
       .join('\n---\n');
 
     try {
+      const systemContent = categoryDescriptions
+        ? `Category definitions:\n${categoryDescriptions}${correctionContext}`
+        : correctionContext
+          ? correctionContext.trim()
+          : undefined;
+
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4096,
-        tools: [CATEGORIZE_TOOL],
+        ...(systemContent ? { system: systemContent } : {}),
+        tools: [tool],
         tool_choice: { type: 'tool', name: 'categorize_emails' },
         messages: [
           {
@@ -123,12 +190,23 @@ ${emailSummaries}`,
         );
       }
 
-      const rows = validResults.map((r) => ({
+      // Also validate categories are in the allowed set
+      const categorySet = new Set(categoryNames);
+      const filteredResults = validResults.filter((r) => {
+        if (!categorySet.has(r.category)) {
+          console.warn(`[categorize] AI returned invalid category "${r.category}", discarding`);
+          return false;
+        }
+        return true;
+      });
+
+      const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
+      const rows = filteredResults.map((r) => ({
         email_id: r.email_id,
         category: r.category,
         topic: r.topic,
-        priority: r.priority,
-        confidence: r.confidence,
+        priority: VALID_PRIORITIES.has(r.priority) ? r.priority : 'normal',
+        confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0)),
         categorized_at: new Date().toISOString(),
       }));
 
@@ -147,11 +225,11 @@ ${emailSummaries}`,
       } else {
         categorized += rows.length;
 
-        // Mark emails as categorized
+        // Mark emails as categorized + update status
         const categorizedIds = rows.map((r) => r.email_id);
         const { error: markError } = await serviceClient
           .from('emails')
-          .update({ is_categorized: true })
+          .update({ is_categorized: true, categorization_status: 'done' })
           .in('id', categorizedIds);
         if (markError) {
           console.error('[categorize] Failed to mark emails as categorized:', markError);

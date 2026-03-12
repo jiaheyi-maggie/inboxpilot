@@ -54,7 +54,11 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
     setCategorizingAll(true);
     setError(null);
     try {
-      const res = await fetch('/api/categorize', { method: 'POST' });
+      const res = await fetch('/api/categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markRead: true }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? 'Categorization failed');
@@ -92,21 +96,21 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
   if (emails.length === 0 && !error) return null;
 
   return (
-    <div className="border-b border-border bg-blue-50/50">
+    <div className="border-b border-border bg-primary/5">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-50/80 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-primary/8 transition-colors"
       >
         <div className="flex items-center gap-2">
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-blue-600" />
+            <ChevronDown className="h-4 w-4 text-primary" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-blue-600" />
+            <ChevronRight className="h-4 w-4 text-primary" />
           )}
-          <Inbox className="h-4 w-4 text-blue-600" />
-          <span className="text-sm font-semibold text-blue-800">Unread</span>
+          <Inbox className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold text-foreground">Unread</span>
           {emails.length > 0 && (
-            <Badge variant="category" className="bg-blue-100 text-blue-700 border-blue-200">
+            <Badge variant="category" className="bg-primary/10 text-primary border-primary/20">
               {emails.length}
             </Badge>
           )}
@@ -115,7 +119,7 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
           <Button
             size="sm"
             variant="ghost"
-            className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-100 h-7 px-2"
+            className="text-xs text-primary hover:text-primary hover:bg-primary/10 h-7 px-2"
             onClick={(e) => {
               e.stopPropagation();
               handleCategorizeAll();
@@ -137,7 +141,7 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
           {error && (
             <p className="px-4 py-1.5 text-xs text-destructive">{error}</p>
           )}
-          <div className="divide-y divide-blue-100/50">
+          <div className="divide-y divide-border/50">
             {emails.map((email) => (
               <UnreadEmailCard
                 key={email.id}
@@ -219,7 +223,7 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
     [email.id, email.subject, onProcessed],
   );
 
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.gmail_message_id}`;
+  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.thread_id ?? email.gmail_message_id}`;
 
   return (
     <div
@@ -232,8 +236,8 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
         className={`transition-colors ${
           disabled || actioning
             ? 'opacity-60 pointer-events-none'
-            : 'hover:bg-blue-50 cursor-pointer'
-        } ${isOpen ? 'bg-blue-50/80' : ''}`}
+            : 'hover:bg-accent/50 cursor-pointer'
+        } ${isOpen ? 'bg-accent/50' : ''}`}
         onClick={handleClick}
         role="button"
         tabIndex={0}
@@ -249,26 +253,26 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-900 truncate">
+                <span className="text-sm font-semibold text-foreground truncate">
                   {email.sender_name || email.sender_email || 'Unknown'}
                 </span>
-                <span className="text-xs text-slate-400 ml-auto flex-shrink-0">
+                <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
                   {email.received_at
                     ? format(new Date(email.received_at), 'MMM d, h:mm a')
                     : ''}
                 </span>
               </div>
-              <p className="text-sm font-medium text-slate-800 truncate mt-0.5">
+              <p className="text-sm font-medium text-foreground truncate mt-0.5">
                 {email.subject || '(no subject)'}
               </p>
               {!isOpen && (
-                <p className="text-xs text-slate-400 truncate mt-0.5">
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
                   {email.snippet}
                 </p>
               )}
             </div>
             {actioning && (
-              <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0 mt-1" />
+              <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0 mt-1" />
             )}
           </div>
         </div>
@@ -282,12 +286,12 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
           <div className="overflow-hidden">
             <div className="px-4 pb-3 space-y-2">
               {/* Full snippet */}
-              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
                 {email.snippet}
               </p>
 
               {/* Metadata row */}
-              <div className="flex items-center gap-3 text-xs text-slate-400">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span>From: {email.sender_email}</span>
                 {email.has_attachment && <span>📎 Attachment</span>}
               </div>
@@ -296,7 +300,7 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
               <div className="flex items-center gap-2 pt-1">
                 <Button
                   size="sm"
-                  className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                  className="h-7 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
                   onClick={markReadAndExit}
                   disabled={actioning}
                 >
@@ -311,7 +315,7 @@ function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps)
                   href={gmailUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline ml-auto"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 hover:underline ml-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Open in Gmail

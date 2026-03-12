@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import type { gmail_v1 } from 'googleapis';
 import { decrypt, encrypt } from '@/lib/crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { GmailAccount } from '@/types';
@@ -221,4 +222,63 @@ export async function unstarEmail(account: GmailAccount, gmailMessageId: string)
     id: gmailMessageId,
     requestBody: { removeLabelIds: ['STARRED'] },
   });
+}
+
+// --- Email Body Fetching ---
+
+export async function fetchEmailBody(
+  account: GmailAccount,
+  gmailMessageId: string
+): Promise<{ body_html: string | null; body_text: string | null }> {
+  const gmail = await getGmailClient(account);
+  const res = await gmail.users.messages.get({
+    userId: 'me',
+    id: gmailMessageId,
+    format: 'full',
+  });
+
+  const payload = res.data.payload;
+  if (!payload) return { body_html: null, body_text: null };
+
+  const { html, text } = extractBodyParts(payload);
+  return { body_html: html, body_text: text };
+}
+
+/**
+ * Recursively walk MIME parts to extract text/html and text/plain bodies.
+ * Handles simple messages, multipart/alternative, and nested multipart/mixed.
+ */
+function extractBodyParts(
+  part: gmail_v1.Schema$MessagePart
+): { html: string | null; text: string | null } {
+  const mime = part.mimeType ?? '';
+
+  // Leaf node with body data
+  if (part.body?.data) {
+    const decoded = decodeBase64Url(part.body.data);
+    if (mime === 'text/html') return { html: decoded, text: null };
+    if (mime === 'text/plain') return { html: null, text: decoded };
+    // Unknown mime with body data — treat as text
+    return { html: null, text: decoded };
+  }
+
+  // Multipart — recurse into children
+  if (part.parts) {
+    let html: string | null = null;
+    let text: string | null = null;
+    for (const sub of part.parts) {
+      // Skip attachment parts (they have a filename)
+      if (sub.filename && sub.filename.length > 0) continue;
+      const result = extractBodyParts(sub);
+      if (result.html && !html) html = result.html;
+      if (result.text && !text) text = result.text;
+    }
+    return { html, text };
+  }
+
+  return { html: null, text: null };
+}
+
+function decodeBase64Url(data: string): string {
+  return Buffer.from(data, 'base64url').toString('utf-8');
 }

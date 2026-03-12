@@ -27,7 +27,7 @@ src/
 │   ├── (app)/           # Authenticated routes (dashboard, settings)
 │   ├── (auth)/          # OAuth callback handler
 │   ├── api/
-│   │   ├── emails/      # Tree data, unread, actions, category-actions
+│   │   ├── emails/      # Tree data, unread, actions, tree-actions
 │   │   ├── sync/        # Gmail sync + categorize pipeline
 │   │   ├── categorize/  # Standalone AI categorization
 │   │   ├── cron/        # Vercel cron endpoint
@@ -72,7 +72,7 @@ Run in Supabase SQL Editor (not via CLI):
 - **Service client** (`createServiceClient`): Bypasses RLS with service role key, used for data operations
 
 ### OAuth Token Encryption
-Tokens stored encrypted with AES-256-GCM + scrypt key derivation in `src/lib/crypto.ts`. Key: `ENCRYPTION_KEY` env var.
+Tokens stored encrypted with AES-256-GCM + scrypt key derivation in `src/lib/crypto.ts`. Key: `TOKEN_ENCRYPTION_KEY` env var.
 
 ### Gmail Token Refresh
 `src/lib/gmail/client.ts` uses per-account mutex locks to prevent concurrent token refreshes. `getGmailClient(account)` returns an authenticated `gmail_v1.Gmail` instance.
@@ -128,7 +128,7 @@ This is because Supabase PostgREST doesn't support native GROUP BY.
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-ENCRYPTION_KEY=               # For AES-256-GCM token encryption
+TOKEN_ENCRYPTION_KEY=          # For AES-256-GCM token encryption
 ANTHROPIC_API_KEY=             # Claude Sonnet for categorization
 CRON_SECRET=                   # Vercel cron auth
 ```
