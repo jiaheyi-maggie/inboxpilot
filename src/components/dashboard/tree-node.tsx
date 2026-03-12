@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Mail } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Mail, Loader2 } from 'lucide-react';
 import { CategoryActions } from './category-actions';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingLevel, DimensionKey } from '@/types';
 
@@ -101,27 +101,29 @@ export function TreeNode({
     <div>
       <button
         onClick={toggle}
-        className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-colors
-          ${isSelected ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50'}
+        className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-all duration-150
+          ${isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'}
           ${loading ? 'opacity-70' : ''}
         `}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
       >
-        {isLeaf ? (
-          <Mail className="h-4 w-4 flex-shrink-0 text-slate-400" />
+        {loading ? (
+          <Loader2 className="h-4 w-4 flex-shrink-0 text-muted-foreground animate-spin" />
+        ) : isLeaf ? (
+          <Mail className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
         ) : expanded ? (
           <>
-            <ChevronDown className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
             <FolderOpen className="h-4 w-4 flex-shrink-0 text-amber-500" />
           </>
         ) : (
           <>
-            <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
             <Folder className="h-4 w-4 flex-shrink-0 text-amber-500" />
           </>
         )}
         <span className="flex-1 truncate font-medium">{displayLabel}</span>
-        <span className="text-xs text-slate-400 tabular-nums">{count}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
         {dimension === 'category' && (
           <span onClick={(e) => e.stopPropagation()}>
             <CategoryActions category={label} onActionComplete={onTreeChanged} />
@@ -129,8 +131,13 @@ export function TreeNode({
         )}
       </button>
 
-      {expanded && children.length > 0 && (
-        <div>
+      {/* Animated children container */}
+      <div
+        className={`grid transition-all duration-200 ease-in-out ${
+          expanded && children.length > 0 ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className="overflow-hidden">
           {children.map((child) => (
             <TreeNode
               key={child.group_key}
@@ -148,7 +155,7 @@ export function TreeNode({
             />
           ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

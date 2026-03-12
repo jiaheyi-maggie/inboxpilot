@@ -26,6 +26,7 @@ export interface Email {
   is_read: boolean;
   is_starred: boolean;
   is_categorized: boolean;
+  categorization_status: 'none' | 'pending' | 'done' | 'failed';
   has_attachment: boolean;
   label_ids: string[];
   created_at: string;

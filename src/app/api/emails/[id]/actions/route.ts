@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import {
   markAsRead,
@@ -64,25 +65,70 @@ export async function POST(
   try {
     switch (action) {
       case 'mark_read': {
+        // 1. Mark as read in Gmail + DB immediately
         await markAsRead(accountData, gmailMessageId);
+        const updateFields: Record<string, unknown> = { is_read: true };
+
+        // 2. If not yet categorized, set status to pending and defer categorization
+        const needsCategorization = !email.is_categorized;
+        if (needsCategorization) {
+          updateFields.categorization_status = 'pending';
+        }
+
         const { error: readErr } = await serviceClient
           .from('emails')
-          .update({ is_read: true })
+          .update(updateFields)
           .eq('id', emailId);
-        if (readErr) console.error('[email-action] DB update is_read failed:', readErr);
+        if (readErr) console.error('[email-action] DB update failed:', readErr);
 
-        // Only categorize if not already categorized
-        let didCategorize = false;
-        if (!email.is_categorized) {
-          const emailForCat = { ...email, gmail_accounts: undefined } as unknown as Email;
-          const catResult = await categorizeEmails([emailForCat]);
-          didCategorize = catResult.categorized > 0;
+        // 3. If already categorized, return the existing category
+        let assignedCategory: string | null = null;
+        if (!needsCategorization) {
+          const { data: catRow } = await serviceClient
+            .from('email_categories')
+            .select('category')
+            .eq('email_id', emailId)
+            .single();
+          assignedCategory = catRow?.category ?? null;
+        }
+
+        // 4. Schedule background categorization via after()
+        if (needsCategorization) {
+          after(async () => {
+            try {
+              const bgServiceClient = createServiceClient();
+              const emailForCat = { ...email, gmail_accounts: undefined } as unknown as Email;
+              const catResult = await categorizeEmails([emailForCat]);
+
+              if (catResult.categorized > 0) {
+                await bgServiceClient
+                  .from('emails')
+                  .update({ categorization_status: 'done' })
+                  .eq('id', emailId);
+              } else {
+                console.error(`[email-action] Background categorization returned 0 for ${emailId}`);
+                await bgServiceClient
+                  .from('emails')
+                  .update({ categorization_status: 'failed' })
+                  .eq('id', emailId);
+              }
+            } catch (err) {
+              console.error(`[email-action] Background categorization failed for ${emailId}:`, err);
+              const bgServiceClient = createServiceClient();
+              await bgServiceClient
+                .from('emails')
+                .update({ categorization_status: 'failed' })
+                .eq('id', emailId)
+                .then(() => {});
+            }
+          });
         }
 
         return NextResponse.json({
           success: true,
           action: 'mark_read',
-          categorized: didCategorize,
+          categorization_status: needsCategorization ? 'pending' : 'done',
+          category: assignedCategory,
         });
       }
 

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { syncEmails } from '@/lib/gmail/sync';
 import { categorizeEmails, getUncategorizedEmails } from '@/lib/ai/categorize';
@@ -45,7 +45,7 @@ export async function POST() {
     .single();
 
   try {
-    console.log(`[sync-api] Starting sync for ${gmailAccount.email}, token_expires: ${gmailAccount.token_expires_at}`);
+    console.log(`[sync-api] Starting sync for ${gmailAccount.email}`);
     const syncResult = await syncEmails(gmailAccount);
     console.log(`[sync-api] Sync done: fetched=${syncResult.fetched}, errors=${syncResult.errors}`);
 
@@ -60,23 +60,14 @@ export async function POST() {
     const includeUnread = prefs?.auto_categorize_unread ?? false;
     const uncategorized = await getUncategorizedEmails(gmailAccount.id, { includeUnread });
     console.log(`[sync-api] Uncategorized (includeUnread=${includeUnread}): ${uncategorized.length}`);
-    let categorizeResult = { categorized: 0, errors: 0 };
 
+    // Mark uncategorized emails as pending for background categorization
     if (uncategorized.length > 0) {
-      categorizeResult = await categorizeEmails(uncategorized);
-    }
-
-    // Update sync job
-    if (job) {
+      const uncategorizedIds = uncategorized.map((e) => e.id);
       await serviceClient
-        .from('sync_jobs')
-        .update({
-          status: 'completed',
-          emails_fetched: syncResult.fetched,
-          emails_categorized: categorizeResult.categorized,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', job.id);
+        .from('emails')
+        .update({ categorization_status: 'pending' })
+        .in('id', uncategorizedIds);
     }
 
     // Fetch total counts for diagnostic context
@@ -90,12 +81,48 @@ export async function POST() {
       .eq('gmail_account_id', gmailAccount.id)
       .eq('is_categorized', true);
 
-    console.log(`[sync-api] Done. fetched=${syncResult.fetched}, categorized=${categorizeResult.categorized}, totalEmails=${totalEmails}, totalCategorized=${totalCategorized}`);
+    // Update sync job as completed (categorization happens in background)
+    if (job) {
+      await serviceClient
+        .from('sync_jobs')
+        .update({
+          status: 'completed',
+          emails_fetched: syncResult.fetched,
+          emails_categorized: 0, // will be updated after background categorization
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', job.id);
+    }
+
+    // Schedule background categorization via after()
+    if (uncategorized.length > 0) {
+      const jobId = job?.id;
+      after(async () => {
+        try {
+          console.log(`[sync-bg] Starting background categorization of ${uncategorized.length} emails`);
+          const bgServiceClient = createServiceClient();
+          const catResult = await categorizeEmails(uncategorized);
+          console.log(`[sync-bg] Background categorization done: categorized=${catResult.categorized}, errors=${catResult.errors}`);
+
+          // Update job with categorization results
+          if (jobId) {
+            await bgServiceClient
+              .from('sync_jobs')
+              .update({ emails_categorized: catResult.categorized })
+              .eq('id', jobId);
+          }
+        } catch (err) {
+          console.error('[sync-bg] Background categorization failed:', err);
+        }
+      });
+    }
+
+    console.log(`[sync-api] Responding. fetched=${syncResult.fetched}, pendingCategorization=${uncategorized.length}, totalEmails=${totalEmails}, totalCategorized=${totalCategorized}`);
 
     return NextResponse.json({
       success: true,
       fetched: syncResult.fetched,
-      categorized: categorizeResult.categorized,
+      pendingCategorization: uncategorized.length,
       totalEmails: totalEmails ?? 0,
       totalCategorized: totalCategorized ?? 0,
     });

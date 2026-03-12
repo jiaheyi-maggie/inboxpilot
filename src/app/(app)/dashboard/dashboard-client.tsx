@@ -6,6 +6,19 @@ import Image from 'next/image';
 import { Settings, LogOut, ShieldAlert } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { EmailTree } from '@/components/dashboard/email-tree';
 import { SyncStatus } from '@/components/dashboard/sync-status';
 import type { GroupingConfig, GmailAccount, SyncJob } from '@/types';
@@ -24,7 +37,6 @@ export function DashboardClient({
   userEmail,
 }: DashboardClientProps) {
   const router = useRouter();
-  const [showMenu, setShowMenu] = useState(false);
   const autoSyncTriggered = useRef(false);
 
   // Key to force re-fetch of EmailTree when sync completes
@@ -61,48 +73,46 @@ export function DashboardClient({
   return (
     <div className="h-screen flex flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <Image src="/logo.png" alt="InboxPilot" width={24} height={24} className="rounded" />
-          <span className="font-bold text-slate-900">InboxPilot</span>
+          <span className="font-bold text-foreground">InboxPilot</span>
         </div>
 
         <div className="flex items-center gap-1">
           <SyncStatus onSyncComplete={handleSyncComplete} />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.push('/settings')}
-            title="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-          <div className="relative">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowMenu(!showMenu)}
-              title={userEmail}
-            >
-              <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-700">
-                {userEmail?.[0]?.toUpperCase() ?? '?'}
-              </div>
-            </Button>
-            {showMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-50">
-                <div className="px-3 py-2 text-xs text-slate-500 border-b border-slate-100">
-                  {userEmail}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => router.push('/settings')}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
+          </Tooltip>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
+                  {userEmail?.[0]?.toUpperCase() ?? '?'}
                 </div>
-                <button
-                  onClick={handleSignOut}
-                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                >
-                  <LogOut className="h-3 w-3" />
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground truncate">
+                {userEmail}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -133,7 +143,7 @@ export function DashboardClient({
         {config ? (
           <EmailTree config={config} refreshKey={treeRefreshKey} />
         ) : (
-          <div className="flex items-center justify-center h-full text-slate-500 text-sm px-4 text-center">
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm px-4 text-center">
             <div>
               <p>No grouping configuration set up.</p>
               <Button

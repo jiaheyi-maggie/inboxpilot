@@ -1,8 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Inbox, Loader2, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Inbox,
+  Loader2,
+  MailOpen,
+  Sparkles,
+} from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { Email } from '@/types';
@@ -17,7 +26,6 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
-  const [actioningId, setActioningId] = useState<string | null>(null);
   const [categorizingAll, setCategorizingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,37 +50,10 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
     fetchUnread();
   }, [fetchUnread, refreshKey]);
 
-  const handleMarkRead = useCallback(
-    async (emailId: string) => {
-      setActioningId(emailId);
-      setError(null);
-      try {
-        const res = await fetch(`/api/emails/${emailId}/actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'mark_read' }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          setError(data.error ?? 'Failed to mark as read');
-          return;
-        }
-        setEmails((prev) => prev.filter((e) => e.id !== emailId));
-        onEmailRead?.();
-      } catch {
-        setError('Network error');
-      } finally {
-        setActioningId(null);
-      }
-    },
-    [onEmailRead]
-  );
-
   const handleCategorizeAll = useCallback(async () => {
     setCategorizingAll(true);
     setError(null);
     try {
-      // Run AI categorization on all uncategorized emails
       const res = await fetch('/api/categorize', { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -80,12 +61,16 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
         return;
       }
       const result = await res.json();
-      if (result.errors > 0) {
-        setError(`Categorized ${result.categorized}, but ${result.errors} failed`);
+      if (result.pending > 0) {
+        toast.success(`Categorizing ${result.pending} emails in background`);
+      } else {
+        toast.info('All emails already categorized');
       }
-      // Refresh unread list (categorized emails are no longer uncategorized)
-      await fetchUnread();
-      onEmailRead?.();
+      // Refresh after a short delay to let background processing start
+      setTimeout(() => {
+        fetchUnread();
+        onEmailRead?.();
+      }, 1000);
     } catch {
       setError('Network error during categorization');
       fetchUnread();
@@ -94,11 +79,20 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
     }
   }, [onEmailRead, fetchUnread]);
 
+  // Remove an email from the local list with animation
+  const handleEmailProcessed = useCallback(
+    (emailId: string) => {
+      setEmails((prev) => prev.filter((e) => e.id !== emailId));
+      onEmailRead?.();
+    },
+    [onEmailRead],
+  );
+
   if (loading) return null;
   if (emails.length === 0 && !error) return null;
 
   return (
-    <div className="border-b border-slate-200 bg-blue-50/50">
+    <div className="border-b border-border bg-blue-50/50">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-50/80 transition-colors"
@@ -141,55 +135,193 @@ export function UnreadSection({ onEmailRead, refreshKey }: UnreadSectionProps) {
       {expanded && (
         <>
           {error && (
-            <p className="px-4 py-1.5 text-xs text-red-500">{error}</p>
+            <p className="px-4 py-1.5 text-xs text-destructive">{error}</p>
           )}
           <div className="divide-y divide-blue-100/50">
             {emails.map((email) => (
-              <div
+              <UnreadEmailCard
                 key={email.id}
-                className={`px-4 py-2.5 transition-colors ${
-                  categorizingAll || actioningId
-                    ? 'opacity-60 pointer-events-none'
-                    : 'hover:bg-blue-50 cursor-pointer'
-                }`}
-                onClick={() => !categorizingAll && !actioningId && handleMarkRead(email.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (!categorizingAll && !actioningId) handleMarkRead(email.id);
-                  }
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-900 truncate">
-                        {email.sender_name || email.sender_email || 'Unknown'}
-                      </span>
-                      <span className="text-xs text-slate-400 ml-auto flex-shrink-0">
-                        {email.received_at
-                          ? format(new Date(email.received_at), 'MMM d')
-                          : ''}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-slate-800 truncate mt-0.5">
-                      {email.subject || '(no subject)'}
-                    </p>
-                    <p className="text-xs text-slate-400 truncate mt-0.5">
-                      {email.snippet}
-                    </p>
-                  </div>
-                  {actioningId === email.id && (
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0 mt-1" />
-                  )}
-                </div>
-              </div>
+                email={email}
+                disabled={categorizingAll}
+                onProcessed={handleEmailProcessed}
+              />
             ))}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// --- Individual email card with expand/categorize behavior ---
+
+interface UnreadEmailCardProps {
+  email: Email;
+  disabled: boolean;
+  onProcessed: (emailId: string) => void;
+}
+
+function UnreadEmailCard({ email, disabled, onProcessed }: UnreadEmailCardProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [actioning, setActioning] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const handleClick = useCallback(() => {
+    if (disabled || actioning) return;
+    setIsOpen((prev) => !prev);
+  }, [disabled, actioning]);
+
+  const EXIT_ANIMATION_MS = 300;
+
+  const markReadAndExit = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setActioning(true);
+      try {
+        const res = await fetch(`/api/emails/${email.id}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mark_read' }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error ?? 'Failed to process');
+          return;
+        }
+        const data = await res.json();
+
+        // Optimistic exit — don't wait for background categorization
+        setExiting(true);
+
+        if (data.category) {
+          // Already categorized (was previously read+categorized)
+          toast.success(`Moved to ${data.category}`, {
+            description: email.subject || '(no subject)',
+          });
+        } else if (data.categorization_status === 'pending') {
+          // Background categorization started
+          toast.success('Marked as read — categorizing...', {
+            description: email.subject || '(no subject)',
+          });
+        } else {
+          toast.success('Marked as read');
+        }
+
+        // Wait for exit animation, then remove from list
+        setTimeout(() => onProcessed(email.id), EXIT_ANIMATION_MS);
+      } catch {
+        toast.error('Network error');
+      } finally {
+        setActioning(false);
+      }
+    },
+    [email.id, email.subject, onProcessed],
+  );
+
+  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.gmail_message_id}`;
+
+  return (
+    <div
+      ref={cardRef}
+      className={`transition-all duration-300 ease-in-out overflow-hidden ${
+        exiting ? 'max-h-0 opacity-0 scale-y-95' : 'max-h-[500px] opacity-100 scale-y-100'
+      }`}
+    >
+      <div
+        className={`transition-colors ${
+          disabled || actioning
+            ? 'opacity-60 pointer-events-none'
+            : 'hover:bg-blue-50 cursor-pointer'
+        } ${isOpen ? 'bg-blue-50/80' : ''}`}
+        onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleClick();
+          }
+        }}
+      >
+        {/* Collapsed row */}
+        <div className="px-4 py-2.5">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-900 truncate">
+                  {email.sender_name || email.sender_email || 'Unknown'}
+                </span>
+                <span className="text-xs text-slate-400 ml-auto flex-shrink-0">
+                  {email.received_at
+                    ? format(new Date(email.received_at), 'MMM d, h:mm a')
+                    : ''}
+                </span>
+              </div>
+              <p className="text-sm font-medium text-slate-800 truncate mt-0.5">
+                {email.subject || '(no subject)'}
+              </p>
+              {!isOpen && (
+                <p className="text-xs text-slate-400 truncate mt-0.5">
+                  {email.snippet}
+                </p>
+              )}
+            </div>
+            {actioning && (
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0 mt-1" />
+            )}
+          </div>
+        </div>
+
+        {/* Expanded details */}
+        <div
+          className={`grid transition-all duration-200 ease-in-out ${
+            isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-3 space-y-2">
+              {/* Full snippet */}
+              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                {email.snippet}
+              </p>
+
+              {/* Metadata row */}
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <span>From: {email.sender_email}</span>
+                {email.has_attachment && <span>📎 Attachment</span>}
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  size="sm"
+                  className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={markReadAndExit}
+                  disabled={actioning}
+                >
+                  {actioning ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <MailOpen className="h-3 w-3 mr-1" />
+                  )}
+                  Read & Categorize
+                </Button>
+                <a
+                  href={gmailUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline ml-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Open in Gmail
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -96,8 +96,26 @@ This is because Supabase PostgREST doesn't support native GROUP BY.
 
 ### Unread Email Flow
 - Unread uncategorized emails appear in pinned `UnreadSection` at top of dashboard
-- Tapping an email → `POST /api/emails/[id]/actions` with `mark_read` → triggers individual categorization → email moves to tree
+- Click expands email inline to show snippet, metadata, and action buttons
+- "Read & Categorize" button → `POST /api/emails/[id]/actions` with `mark_read` → auto-categorizes → shows toast with assigned category → animates out
 - "Categorize All" button → `POST /api/categorize` with `includeUnread: true`
+- "Open in Gmail" link opens the email in Gmail in a new tab
+
+### Real-time Updates
+- `EmailTree` subscribes to Supabase Realtime (postgres_changes on `emails` table)
+- INSERT events show a toast and refresh unread section + tree
+- UPDATE events silently refresh the tree
+- Events are debounced (500ms) to coalesce bulk sync operations
+- **Requires**: `ALTER PUBLICATION supabase_realtime ADD TABLE emails;` (see migration `00003_enable_realtime.sql`)
+
+### Animations & Transitions
+- Tree expand/collapse: CSS `grid-rows-[0fr] → grid-rows-[1fr]` transition
+- Email exit (archive, trash, categorize): `max-h-0 opacity-0 scale-y-95` transition (300ms)
+- Loading states: `Loader2` spinner replaces chevron icons during fetch
+
+### Toast Notifications
+- Uses `sonner` library, `<Toaster>` in root layout
+- Actions that move/remove emails show toast with result ("Moved to Work", "Archived", etc.)
 
 ### Dimension Types
 - **Email-table**: `sender`, `sender_domain`, `is_read`, `has_attachment`

@@ -170,3 +170,5 @@ https://inboxpilot-azure.vercel.app/callback
 
 
 https://sipldbbisqmlywssunhv.supabase.co/auth/v1/callback
+
+migrations: supabase db push

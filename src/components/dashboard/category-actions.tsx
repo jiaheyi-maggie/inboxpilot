@@ -2,6 +2,14 @@
 
 import { useCallback, useState } from 'react';
 import { MoreHorizontal, Trash2, Archive, ArrowRight, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { CategoryPicker } from './category-picker';
 
 interface CategoryActionsProps {
@@ -10,22 +18,19 @@ interface CategoryActionsProps {
 }
 
 export function CategoryActions({ category, onActionComplete }: CategoryActionsProps) {
-  const [showMenu, setShowMenu] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<'trash' | 'archive' | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<'trash' | 'archive' | null>(null);
 
   const handleAction = useCallback(
     async (action: 'trash' | 'archive', confirmed = false) => {
       if (!confirmed) {
-        setConfirmAction(action);
+        setPendingAction(action);
         return;
       }
 
       setLoading(true);
-      setConfirmAction(null);
-      setError(null);
+      setPendingAction(null);
       try {
         const res = await fetch('/api/emails/category-actions', {
           method: 'POST',
@@ -34,19 +39,20 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setError(data.error ?? `${action} failed`);
+          toast.error(data.error ?? `${action} failed`);
           return;
         }
         const data = await res.json();
         if (data.failed > 0) {
-          setError(`${data.failed} email(s) failed to ${action}`);
+          toast.warning(`${data.affected} ${action === 'trash' ? 'trashed' : 'archived'}, ${data.failed} failed`);
+        } else {
+          toast.success(`${data.affected} email(s) ${action === 'trash' ? 'trashed' : 'archived'}`);
         }
         onActionComplete?.();
       } catch {
-        setError('Network error');
+        toast.error('Network error');
       } finally {
         setLoading(false);
-        setShowMenu(false);
       }
     },
     [category, onActionComplete]
@@ -56,7 +62,6 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
     async (newCategory: string) => {
       setLoading(true);
       setShowPicker(false);
-      setError(null);
       try {
         const res = await fetch('/api/emails/category-actions', {
           method: 'POST',
@@ -69,100 +74,89 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setError(data.error ?? 'Reassign failed');
+          toast.error(data.error ?? 'Reassign failed');
           return;
         }
+        toast.success(`Reassigned to ${newCategory}`);
         onActionComplete?.();
       } catch {
-        setError('Network error');
+        toast.error('Network error');
       } finally {
         setLoading(false);
-        setShowMenu(false);
       }
     },
     [category, onActionComplete]
   );
 
   if (loading) {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />;
+    return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />;
   }
 
   return (
-    <div className="relative">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowMenu(!showMenu);
-          setConfirmAction(null);
-          setError(null);
+    <>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (!open) setPendingAction(null);
         }}
-        className="p-1 rounded hover:bg-slate-200 transition-colors"
       >
-        <MoreHorizontal className="h-3.5 w-3.5 text-slate-400" />
-      </button>
-
-      {error && (
-        <p className="absolute right-0 top-full mt-1 text-xs text-red-500 whitespace-nowrap z-50">
-          {error}
-        </p>
-      )}
-
-      {showMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => { setShowMenu(false); setConfirmAction(null); }} />
-          <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-50">
-            {confirmAction ? (
-              <div className="px-3 py-2">
-                <p className="text-xs text-slate-500 mb-2">
-                  {confirmAction === 'trash' ? 'Trash' : 'Archive'} all emails in &ldquo;{category}&rdquo;?
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleAction(confirmAction, true); }}
-                    className="flex-1 text-xs px-2 py-1.5 bg-red-50 text-red-600 rounded font-medium hover:bg-red-100"
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setConfirmAction(null); }}
-                    className="flex-1 text-xs px-2 py-1.5 bg-slate-50 text-slate-600 rounded hover:bg-slate-100"
-                  >
-                    Cancel
-                  </button>
-                </div>
+        <DropdownMenuTrigger asChild>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            className="p-1 rounded hover:bg-accent transition-colors"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          {pendingAction ? (
+            <div className="px-2 py-2">
+              <p className="text-xs text-muted-foreground mb-2">
+                {pendingAction === 'trash' ? 'Trash' : 'Archive'} all emails in &ldquo;{category}&rdquo;?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleAction(pendingAction, true); }}
+                  className="flex-1 text-xs px-2 py-1.5 bg-destructive/10 text-destructive rounded font-medium hover:bg-destructive/20"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPendingAction(null); }}
+                  className="flex-1 text-xs px-2 py-1.5 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80"
+                >
+                  Cancel
+                </button>
               </div>
-            ) : (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleAction('trash'); }}
-                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Trash all
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleAction('archive'); }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                  Archive all
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMenu(false);
-                    setShowPicker(true);
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                >
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  Reassign all to...
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
+            </div>
+          ) : (
+            <>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(e) => { e.stopPropagation(); handleAction('trash'); }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Trash all
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => { e.stopPropagation(); handleAction('archive'); }}
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive all
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowPicker(true);
+                }}
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                Reassign all to...
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {showPicker && (
         <CategoryPicker
@@ -171,6 +165,6 @@ export function CategoryActions({ category, onActionComplete }: CategoryActionsP
           excludeCategory={category}
         />
       )}
-    </div>
+    </>
   );
 }

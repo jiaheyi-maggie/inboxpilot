@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { categorizeEmails, getUncategorizedEmails } from '@/lib/ai/categorize';
 
@@ -40,11 +40,27 @@ export async function POST() {
     });
   }
 
-  const result = await categorizeEmails(uncategorized);
+  // Mark emails as pending
+  const uncategorizedIds = uncategorized.map((e) => e.id);
+  await serviceClient
+    .from('emails')
+    .update({ categorization_status: 'pending' })
+    .in('id', uncategorizedIds);
+
+  // Schedule background categorization
+  after(async () => {
+    try {
+      console.log(`[categorize-bg] Starting background categorization of ${uncategorized.length} emails`);
+      const result = await categorizeEmails(uncategorized);
+      console.log(`[categorize-bg] Done: categorized=${result.categorized}, errors=${result.errors}`);
+    } catch (err) {
+      console.error('[categorize-bg] Background categorization failed:', err);
+    }
+  });
 
   return NextResponse.json({
     success: true,
-    categorized: result.categorized,
-    errors: result.errors,
+    pending: uncategorized.length,
+    message: `Categorizing ${uncategorized.length} emails in background`,
   });
 }
