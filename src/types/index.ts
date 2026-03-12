@@ -144,3 +144,116 @@ export const CATEGORIES = [
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+// --- Workflow Types ---
+
+export type WorkflowTriggerType =
+  | 'new_email'           // fires after sync inserts a new email
+  | 'email_categorized'   // fires after AI categorization completes
+  | 'email_from_domain'   // fires when sender domain matches
+  | 'unread_timeout';     // fires when email unread for N minutes (cron-based)
+
+export type WorkflowActionType =
+  | 'trash'
+  | 'archive'
+  | 'star'
+  | 'unstar'
+  | 'mark_read'
+  | 'mark_unread'
+  | 'reassign_category';
+
+export type WorkflowConditionField =
+  | 'category'
+  | 'topic'
+  | 'priority'
+  | 'sender_email'
+  | 'sender_domain'
+  | 'subject'
+  | 'has_attachment'
+  | 'is_read'
+  | 'is_starred'
+  | 'label';
+
+export type WorkflowConditionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_true'
+  | 'is_false';
+
+export interface TriggerNodeData {
+  triggerType: WorkflowTriggerType;
+  config: {
+    domain?: string;           // for email_from_domain
+    category?: string;         // for email_categorized
+    timeoutMinutes?: number;   // for unread_timeout
+  };
+}
+
+export interface ConditionNodeData {
+  field: WorkflowConditionField;
+  operator: WorkflowConditionOperator;
+  value: string;
+}
+
+export interface ActionNodeData {
+  actionType: WorkflowActionType;
+  config: {
+    category?: string;  // for reassign_category
+  };
+}
+
+export type WorkflowNodeType = 'trigger' | 'condition' | 'action';
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  position: { x: number; y: number };
+  data: TriggerNodeData | ConditionNodeData | ActionNodeData;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;  // 'true' | 'false' for condition nodes
+  label?: string;
+}
+
+export interface WorkflowGraph {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+export interface Workflow {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  is_enabled: boolean;
+  graph: WorkflowGraph;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowExecutionStep {
+  nodeId: string;
+  nodeType: WorkflowNodeType;
+  result: 'passed' | 'failed' | 'skipped' | 'executed' | 'error';
+  detail?: string;
+  timestamp: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  email_id: string | null;
+  status: 'running' | 'completed' | 'failed';
+  graph_snapshot: WorkflowGraph;
+  log: WorkflowExecutionStep[];
+  started_at: string;
+  completed_at: string | null;
+}

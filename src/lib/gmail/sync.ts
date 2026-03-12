@@ -9,11 +9,13 @@ const BATCH_SIZE = 50;
 export async function syncEmails(account: GmailAccount): Promise<{
   fetched: number;
   errors: number;
+  insertedGmailMessageIds: string[];
 }> {
   const gmail = await getGmailClient(account);
   const serviceClient = createServiceClient();
   let fetched = 0;
   let errors = 0;
+  const insertedGmailMessageIds: string[] = [];
 
   // List messages (newest first)
   let pageToken: string | undefined;
@@ -40,7 +42,7 @@ export async function syncEmails(account: GmailAccount): Promise<{
       .from('gmail_accounts')
       .update({ last_sync_at: new Date().toISOString() })
       .eq('id', account.id);
-    return { fetched: 0, errors: 0 };
+    return { fetched: 0, errors: 0, insertedGmailMessageIds: [] };
   }
 
   // Filter out already-synced messages (batch .in() to avoid URL length limits)
@@ -98,6 +100,13 @@ export async function syncEmails(account: GmailAccount): Promise<{
         errors += rows.length;
       } else {
         fetched += rows.length;
+        // Track inserted gmail_message_ids for workflow triggers
+        for (const row of rows) {
+          const r = row as Record<string, unknown>;
+          if (r.gmail_message_id) {
+            insertedGmailMessageIds.push(r.gmail_message_id as string);
+          }
+        }
       }
     }
   }
@@ -108,7 +117,7 @@ export async function syncEmails(account: GmailAccount): Promise<{
     .update({ last_sync_at: new Date().toISOString() })
     .eq('id', account.id);
 
-  return { fetched, errors };
+  return { fetched, errors, insertedGmailMessageIds };
 }
 
 function messageToRow(

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Settings, LogOut, ShieldAlert } from 'lucide-react';
+import { Settings, LogOut, ShieldAlert, Workflow } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -81,6 +81,18 @@ export function DashboardClient({
 
         <div className="flex items-center gap-1">
           <SyncStatus onSyncComplete={handleSyncComplete} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => router.push('/workflows')}
+              >
+                <Workflow className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Workflows</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

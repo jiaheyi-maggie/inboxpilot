@@ -86,3 +86,107 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+/**
+ * Process unread_timeout workflow triggers.
+ * Called separately or can be appended to the existing GET cron handler.
+ */
+export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get('authorization');
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const serviceClient = createServiceClient();
+
+  try {
+    const { runWorkflowsForEmail } = await import('@/lib/workflows/runner');
+    type TriggerData = { triggerType: string; config?: { timeoutMinutes?: number } };
+    type WorkflowRow = {
+      id: string;
+      user_id: string;
+      graph: { nodes: { type: string; data: TriggerData }[] };
+    };
+
+    // Find enabled workflows with unread_timeout triggers
+    const { data: workflows } = await serviceClient
+      .from('workflows')
+      .select('id, user_id, graph')
+      .eq('is_enabled', true);
+
+    const timeoutWorkflows = (workflows as WorkflowRow[] | null)?.filter((w) => {
+      const trigger = w.graph?.nodes?.find((n) => n.type === 'trigger');
+      return trigger && (trigger.data as TriggerData).triggerType === 'unread_timeout';
+    });
+
+    if (!timeoutWorkflows || timeoutWorkflows.length === 0) {
+      return NextResponse.json({ success: true, processed: 0 });
+    }
+
+    let totalProcessed = 0;
+
+    for (const wf of timeoutWorkflows) {
+      const trigger = wf.graph.nodes.find((n) => n.type === 'trigger');
+      const timeoutMinutes = (trigger?.data as TriggerData)?.config?.timeoutMinutes ?? 60;
+      const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
+
+      // Find unread emails older than timeout
+      const { data: account } = await serviceClient
+        .from('gmail_accounts')
+        .select('*')
+        .eq('user_id', wf.user_id)
+        .limit(1)
+        .single();
+
+      if (!account) continue;
+
+      const { data: unreadEmails } = await serviceClient
+        .from('emails')
+        .select('*, email_categories(category, topic, priority, confidence)')
+        .eq('gmail_account_id', account.id)
+        .eq('is_read', false)
+        .lt('received_at', cutoff)
+        .limit(50);
+
+      if (!unreadEmails || unreadEmails.length === 0) continue;
+
+      // Deduplication: skip emails that already have a run for this workflow
+      const emailIds = unreadEmails.map((e) => e.id);
+      const { data: existingRuns } = await serviceClient
+        .from('workflow_runs')
+        .select('email_id')
+        .eq('workflow_id', wf.id)
+        .in('email_id', emailIds);
+
+      const alreadyProcessed = new Set(
+        (existingRuns ?? []).map((r) => r.email_id)
+      );
+
+      for (const emailRow of unreadEmails) {
+        if (alreadyProcessed.has(emailRow.id)) continue;
+
+        const cat = emailRow.email_categories;
+        const catObj = Array.isArray(cat) ? cat[0] : cat;
+        const emailWithCat = {
+          ...emailRow,
+          email_categories: undefined,
+          category: (catObj as Record<string, unknown>)?.category as string ?? null,
+          topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
+          priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+          confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+        };
+        await runWorkflowsForEmail(emailWithCat, 'unread_timeout', account);
+        totalProcessed++;
+      }
+    }
+
+    return NextResponse.json({ success: true, processed: totalProcessed });
+  } catch (err) {
+    console.error('[cron] Workflow timeout processing failed:', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Cron job failed' },
+      { status: 500 }
+    );
+  }
+}
