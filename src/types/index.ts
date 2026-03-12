@@ -115,6 +115,21 @@ export type EmailAction =
   | 'star'
   | 'unstar';
 
+/** Bulk actions available on tree nodes (any dimension level) */
+export type TreeAction =
+  | 'trash'
+  | 'archive'
+  | 'mark_read'
+  | 'mark_unread'
+  | 'reassign';
+
+export interface TreeActionRequest {
+  action: TreeAction;
+  filters: { dimension: DimensionKey; value: string }[];
+  newCategory?: string;
+  configId: string;
+}
+
 export const CATEGORIES = [
   'Work',
   'Personal',

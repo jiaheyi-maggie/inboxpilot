@@ -1,11 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TreeNode } from './tree-node';
 import { EmailList } from './email-list';
 import { UnreadSection } from './unread-section';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
 import { createClient } from '@/lib/supabase/client';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig } from '@/types';
 import { AlertCircle } from 'lucide-react';
@@ -141,81 +146,125 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     setUnreadRefreshKey((k) => k + 1);
   }, [fetchNodes]);
 
-  return (
-    <div className="flex flex-col lg:flex-row h-full">
-      {/* Tree navigator */}
-      <div
-        className={`${
-          selectedPath ? 'hidden lg:flex' : 'flex'
-        } lg:w-80 lg:flex-shrink-0 flex-col border-b lg:border-b-0 lg:border-r border-border`}
+  // Persist sidebar size to localStorage
+  const LAYOUT_STORAGE_KEY = 'inboxpilot-sidebar-layout';
+
+  const savedLayout = useMemo(() => {
+    if (typeof window === 'undefined') return undefined;
+    try {
+      const stored = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Record<string, number>;
+        // Validate it's a non-empty object with numeric values
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          return parsed;
+        }
+      }
+    } catch { /* ignore parse errors */ }
+    return undefined;
+  }, []);
+
+  const handleLayoutChanged = useCallback((layout: Record<string, number>) => {
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+    } catch { /* quota exceeded, ignore */ }
+  }, []);
+
+  const treeContent = (
+    <>
+      {/* Unread section pinned at top */}
+      <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={(refreshKey ?? 0) + unreadRefreshKey} />
+
+      {loading ? (
+        <TreeSkeleton />
+      ) : fetchError ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <AlertCircle className="h-6 w-6 text-destructive mx-auto mb-2" />
+          <p className="text-sm font-medium text-destructive">Failed to load emails</p>
+          <button
+            onClick={fetchNodes}
+            className="text-sm text-primary mt-2 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      ) : rootNodes.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-lg font-medium">No emails yet</p>
+          <p className="text-sm mt-1">
+            Tap the sync button to fetch your emails
+          </p>
+        </div>
+      ) : (
+        <div className="p-3 space-y-0.5">
+          {rootNodes.map((node) => (
+            <TreeNode
+              key={node.group_key}
+              label={node.group_key}
+              count={node.count}
+              dimension={config.levels[0].dimension}
+              level={0}
+              path={[]}
+              configId={config.id}
+              totalLevels={config.levels.length}
+              levels={config.levels}
+              onSelectEmails={handleSelectEmails}
+              selectedPath={selectedPath}
+              onTreeChanged={handleEmailsChanged}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const emailContent = selectedPath ? (
+    <>
+      <button
+        onClick={() => setSelectedPath(null)}
+        className="lg:hidden p-3 text-sm text-primary font-medium"
       >
-        <ScrollArea className="flex-1">
-          {/* Unread section pinned at top */}
-          <UnreadSection onEmailRead={handleEmailsChanged} refreshKey={(refreshKey ?? 0) + unreadRefreshKey} />
-
-          {loading ? (
-            <TreeSkeleton />
-          ) : fetchError ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <AlertCircle className="h-6 w-6 text-destructive mx-auto mb-2" />
-              <p className="text-sm font-medium text-destructive">Failed to load emails</p>
-              <button
-                onClick={fetchNodes}
-                className="text-sm text-primary mt-2 hover:underline"
-              >
-                Retry
-              </button>
-            </div>
-          ) : rootNodes.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-lg font-medium">No emails yet</p>
-              <p className="text-sm mt-1">
-                Tap the sync button to fetch your emails
-              </p>
-            </div>
-          ) : (
-            <div className="p-3 space-y-0.5">
-              {rootNodes.map((node) => (
-                <TreeNode
-                  key={node.group_key}
-                  label={node.group_key}
-                  count={node.count}
-                  dimension={config.levels[0].dimension}
-                  level={0}
-                  path={[]}
-                  configId={config.id}
-                  totalLevels={config.levels.length}
-                  levels={config.levels}
-                  onSelectEmails={handleSelectEmails}
-                  selectedPath={selectedPath}
-                  onTreeChanged={handleEmailsChanged}
-                />
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-      </div>
-
-      {/* Email list */}
-      <div className={`${!selectedPath ? 'hidden lg:flex' : 'flex'} flex-1 flex-col overflow-hidden`}>
-        <ScrollArea className="flex-1">
-          {selectedPath ? (
-            <>
-              <button
-                onClick={() => setSelectedPath(null)}
-                className="lg:hidden p-3 text-sm text-primary font-medium"
-              >
-                &larr; Back to tree
-              </button>
-              <EmailList emails={selectedEmails} onEmailUpdated={handleEmailsChanged} />
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Select a group to view emails
-            </div>
-          )}
-        </ScrollArea>
-      </div>
+        &larr; Back to tree
+      </button>
+      <EmailList emails={selectedEmails} onEmailUpdated={handleEmailsChanged} />
+    </>
+  ) : (
+    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+      Select a group to view emails
     </div>
+  );
+
+  // Mobile layout: stack vertically, show one panel at a time
+  // Desktop layout: resizable horizontal panels
+  return (
+    <>
+      {/* Mobile: stacked layout with conditional visibility */}
+      <div className="flex flex-col h-full lg:hidden">
+        <div className={`${selectedPath ? 'hidden' : 'flex'} flex-col flex-1 border-b border-border`}>
+          <ScrollArea className="flex-1">{treeContent}</ScrollArea>
+        </div>
+        <div className={`${!selectedPath ? 'hidden' : 'flex'} flex-col flex-1 overflow-hidden`}>
+          <ScrollArea className="flex-1">{emailContent}</ScrollArea>
+        </div>
+      </div>
+
+      {/* Desktop: resizable panels */}
+      <div className="hidden lg:flex h-full">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          id="inboxpilot-sidebar"
+          defaultLayout={savedLayout}
+          onLayoutChanged={handleLayoutChanged}
+        >
+          <ResizablePanel id="tree" defaultSize={25} minSize={15} maxSize={40}>
+            <ScrollArea className="h-full">{treeContent}</ScrollArea>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="emails" defaultSize={75}>
+            <ScrollArea className="h-full">{emailContent}</ScrollArea>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </>
   );
 }

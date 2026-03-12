@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Mail, Loader2 } from 'lucide-react';
-import { CategoryActions } from './category-actions';
+import { TreeNodeActions } from './tree-node-actions';
 import type { EmailWithCategory, TreeNode as TreeNodeType, GroupingLevel, DimensionKey } from '@/types';
 
 interface TreeNodeProps {
@@ -124,9 +124,14 @@ export function TreeNode({
         )}
         <span className="flex-1 truncate font-medium">{displayLabel}</span>
         <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
-        {dimension === 'category' && (
+        {!isLeaf && (
           <span onClick={(e) => e.stopPropagation()}>
-            <CategoryActions category={label} onActionComplete={onTreeChanged} />
+            <TreeNodeActions
+              path={currentPath}
+              configId={configId}
+              nodeLabel={displayLabel}
+              onActionComplete={onTreeChanged}
+            />
           </span>
         )}
       </button>

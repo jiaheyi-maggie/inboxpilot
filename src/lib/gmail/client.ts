@@ -175,6 +175,36 @@ export async function archiveEmails(account: GmailAccount, gmailMessageIds: stri
   return { archived: gmailMessageIds.length - failed, failed };
 }
 
+export async function markAsReadBulk(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['UNREAD'] },
+      })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { updated: gmailMessageIds.length - failed, failed };
+}
+
+export async function markAsUnreadBulk(account: GmailAccount, gmailMessageIds: string[]) {
+  const gmail = await getGmailClient(account);
+  const results = await Promise.allSettled(
+    gmailMessageIds.map((id) =>
+      gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { addLabelIds: ['UNREAD'] },
+      })
+    )
+  );
+  const failed = results.filter((r) => r.status === 'rejected').length;
+  return { updated: gmailMessageIds.length - failed, failed };
+}
+
 export async function starEmail(account: GmailAccount, gmailMessageId: string) {
   const gmail = await getGmailClient(account);
   await gmail.users.messages.modify({
