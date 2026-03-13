@@ -179,7 +179,8 @@ export type WorkflowActionType =
   | 'unstar'
   | 'mark_read'
   | 'mark_unread'
-  | 'reassign_category';
+  | 'reassign_category'
+  | 'recategorize';
 
 export type WorkflowConditionField =
   | 'category'
@@ -221,7 +222,10 @@ export interface ConditionNodeData {
 export interface ActionNodeData {
   actionType: WorkflowActionType;
   config: {
-    category?: string;  // for reassign_category
+    category?: string;           // for reassign_category
+    sourceCategory?: string;     // for recategorize: which category to refine
+    refinementPrompt?: string;   // for recategorize: NL instruction for the AI
+    newCategories?: string[];    // for recategorize: categories to auto-create before running
   };
 }
 

@@ -162,6 +162,7 @@ function getReverseAction(forwardAction: string): ReverseAction {
       };
 
     case 'reassign_category':
+    case 'recategorize':
       // Can only reverse if original category was stored in the run log (previous_state)
       // This is handled specially in rollbackWorkflow — return a marker action
       return {
@@ -326,7 +327,7 @@ export async function rollbackWorkflow(
     const { reverse, emailIds } = group;
 
     // Special handling for reassign_category: restore per-email original categories
-    if (actionType === 'reassign_category') {
+    if (actionType === 'reassign_category' || actionType === 'recategorize') {
       let catRolledBack = 0;
       let catFailed = 0;
       for (const emailId of emailIds) {

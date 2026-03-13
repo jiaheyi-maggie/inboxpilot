@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createServiceClient } from '@/lib/supabase/server';
 import { CATEGORIES } from '@/types';
-import type { WorkflowGraph, WorkflowTriggerType, WorkflowActionType, WorkflowConditionField, WorkflowConditionOperator } from '@/types';
+import type { WorkflowGraph, WorkflowTriggerType, WorkflowActionType, WorkflowConditionField, WorkflowConditionOperator, ActionNodeData } from '@/types';
 
 const anthropic = new Anthropic();
 
@@ -93,12 +93,16 @@ const WORKFLOW_TOOL: Anthropic.Messages.Tool = {
           properties: {
             actionType: {
               type: 'string',
-              enum: ['trash', 'archive', 'star', 'unstar', 'mark_read', 'mark_unread', 'reassign_category'],
+              enum: ['trash', 'archive', 'star', 'unstar', 'mark_read', 'mark_unread', 'reassign_category', 'recategorize'],
+              description: 'recategorize: use when the user wants to split, refine, or reclassify emails within a category using AI judgment (e.g., "extract ads from shopping", "split work into urgent and non-urgent"). reassign_category: use when moving ALL emails to a specific known category.',
             },
             config: {
               type: 'object',
               properties: {
                 category: { type: 'string', description: 'Target category for reassign_category action' },
+                sourceCategory: { type: 'string', description: 'For recategorize: the source category to refine (e.g., "Shopping")' },
+                refinementPrompt: { type: 'string', description: 'For recategorize: natural language instruction for AI reclassification (e.g., "separate ads and promotional content from actual shopping orders")' },
+                newCategories: { type: 'array', items: { type: 'string' }, description: 'For recategorize: new category names to create before running AI reclassification (e.g., ["Ads"]). Only include categories that do NOT already exist in the user\'s list.' },
               },
             },
           },
@@ -196,7 +200,7 @@ function buildGraph(input: {
       position: { x, y: Y + i * 100 },
       data: {
         actionType: act.actionType as WorkflowActionType,
-        config: (act.config ?? {}) as { category?: string },
+        config: (act.config ?? {}) as ActionNodeData['config'],
       },
     });
     edges.push({
@@ -227,6 +231,12 @@ Guidelines:
 - Use unread_timeout only when the user mentions time-based unread rules.
 - Keep it simple: use the minimum nodes needed. Most rules need just 1 trigger + 1 action.
 - For reassign_category action, the target category must be from the user's list.
+
+IMPORTANT — When to use recategorize vs reassign_category vs conditions:
+- Use "recategorize" when the user wants to SPLIT, REFINE, or EXTRACT a subset from a category using semantic/AI judgment. Examples: "extract ads from shopping", "separate urgent work emails", "split newsletters into tech and non-tech". The recategorize action uses AI to re-evaluate each email — do NOT try to replicate this with string-matching conditions (contains/equals). Set sourceCategory to the category being refined, and refinementPrompt to a clear NL instruction for the AI. If the refinement requires a new category that doesn't exist in the user's list, include it in newCategories so it gets auto-created.
+- Use "reassign_category" when the user wants to move ALL emails to a specific category unconditionally.
+- Do NOT use condition nodes with field="subject" operator="contains" to approximate semantic classification. That approach is brittle and misses context. If the user's intent requires understanding email content, use recategorize.
+
 - The summary should be a clear human-readable description: "When [trigger], if [conditions], then [actions]"`;
 
   const response = await anthropic.messages.create({

@@ -474,6 +474,55 @@ async function executeBatchAction(
       return { succeeded, failed: dbIds.length - succeeded };
     }
 
+    case 'recategorize': {
+      // Recategorize: feed emails through AI categorization with a refinement prompt.
+      // This is the semantic alternative to rigid condition-based filtering.
+      const { categorizeEmails } = await import('@/lib/ai/categorize');
+      const refinementPrompt = config.refinementPrompt as string | undefined;
+      const sourceCategory = config.sourceCategory as string | undefined;
+      const newCategories = config.newCategories as string[] | undefined;
+      const userId = account.user_id;
+
+      // Auto-create new categories before AI reclassification
+      if (newCategories?.length) {
+        const { data: existing } = await serviceClient
+          .from('user_categories')
+          .select('name')
+          .eq('user_id', userId);
+        const existingNames = new Set((existing ?? []).map((c: { name: string }) => c.name));
+        const toCreate = newCategories.filter((n) => !existingNames.has(n));
+        if (toCreate.length > 0) {
+          const maxOrder = (existing ?? []).length;
+          const { error: createErr } = await serviceClient.from('user_categories').insert(
+            toCreate.map((name, i) => ({
+              user_id: userId,
+              name,
+              description: null,
+              color: null,
+              sort_order: maxOrder + i,
+              is_default: false,
+            })),
+          );
+          if (createErr) {
+            console.error('[backfill] Failed to auto-create categories:', createErr);
+          }
+        }
+      }
+
+      // categorizeEmails handles batching internally (BATCH_SIZE=25), so pass all emails directly
+      try {
+        const result = await categorizeEmails(
+          emails as unknown as import('@/types').Email[],
+          userId,
+          { refinementPrompt, sourceCategory },
+        );
+        return { succeeded: result.categorized, failed: result.errors };
+      } catch (err) {
+        console.error('[backfill] recategorize failed:', err);
+        return { succeeded: 0, failed: emails.length };
+      }
+    }
+
     default:
       console.warn(`[backfill] Unknown action type: ${actionType}`);
       return { succeeded: 0, failed: gmailIds.length };

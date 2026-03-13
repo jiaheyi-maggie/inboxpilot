@@ -11,6 +11,7 @@ import {
   MailOpen,
   MailX,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 import type { WorkflowNodeType, TriggerNodeData, ConditionNodeData, ActionNodeData } from '@/types';
 
@@ -111,6 +112,13 @@ const PALETTE_ITEMS: { section: string; items: PaletteItem[] }[] = [
         label: 'Reassign Category',
         icon: ArrowRight,
         defaultData: { actionType: 'reassign_category', config: { category: '' } } as ActionNodeData,
+        color: 'emerald',
+      },
+      {
+        nodeType: 'action',
+        label: 'AI Recategorize',
+        icon: Sparkles,
+        defaultData: { actionType: 'recategorize', config: { sourceCategory: '', refinementPrompt: '' } } as ActionNodeData,
         color: 'emerald',
       },
     ],

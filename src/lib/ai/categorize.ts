@@ -100,9 +100,23 @@ function buildCategorizeTool(categoryNames: string[]): Anthropic.Messages.Tool {
   };
 }
 
+/**
+ * Options for categorizeEmails.
+ * - refinementPrompt: When provided, the AI is instructed to refine/reclassify
+ *   emails based on this NL instruction (e.g., "extract ads from shopping").
+ *   The prompt is injected as additional context so the AI uses semantic judgment.
+ * - sourceCategory: When provided with refinementPrompt, limits recategorization
+ *   scope to emails currently in this category.
+ */
+interface CategorizeOptions {
+  refinementPrompt?: string;
+  sourceCategory?: string;
+}
+
 export async function categorizeEmails(
   emails: Email[],
   userId: string,
+  options: CategorizeOptions = {},
 ): Promise<{ categorized: number; errors: number }> {
   const serviceClient = createServiceClient();
   let categorized = 0;
@@ -144,10 +158,15 @@ export async function categorizeEmails(
       .join('\n---\n');
 
     try {
+      // Build refinement context if this is a recategorize action
+      const refinementContext = options.refinementPrompt
+        ? `\n\nREFINEMENT TASK: ${options.refinementPrompt}${options.sourceCategory ? `\nThese emails are currently categorized as "${options.sourceCategory}". Re-evaluate each email and assign it to the most appropriate category based on the refinement instruction above. If an email does not match the refinement criteria, keep it in "${options.sourceCategory}".` : ''}`
+        : '';
+
       const systemContent = categoryDescriptions
-        ? `Category definitions:\n${categoryDescriptions}${correctionContext}`
-        : correctionContext
-          ? correctionContext.trim()
+        ? `Category definitions:\n${categoryDescriptions}${correctionContext}${refinementContext}`
+        : correctionContext || refinementContext
+          ? `${correctionContext.trim()}${refinementContext}`
           : undefined;
 
       const response = await anthropic.messages.create({

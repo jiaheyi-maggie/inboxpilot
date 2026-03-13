@@ -27,6 +27,42 @@ export interface EmailWithCategoryData extends Email {
   confidence?: number | null;
 }
 
+/**
+ * Ensure categories exist in user_categories, creating any that are missing.
+ * Used by recategorize action to auto-create new categories before AI reclassification.
+ */
+async function ensureCategories(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  userId: string,
+  categoryNames: string[],
+): Promise<void> {
+  const { data: existing } = await serviceClient
+    .from('user_categories')
+    .select('name')
+    .eq('user_id', userId);
+
+  const existingNames = new Set((existing ?? []).map((c: { name: string }) => c.name));
+  const toCreate = categoryNames.filter((n) => !existingNames.has(n));
+
+  if (toCreate.length === 0) return;
+
+  // Get max sort_order to append new categories at the end
+  const maxOrder = (existing ?? []).length;
+  const inserts = toCreate.map((name, i) => ({
+    user_id: userId,
+    name,
+    description: null,
+    color: null,
+    sort_order: maxOrder + i,
+    is_default: false,
+  }));
+
+  const { error } = await serviceClient.from('user_categories').insert(inserts);
+  if (error) {
+    console.error('[engine] Failed to auto-create categories:', error);
+  }
+}
+
 interface ExecuteOptions {
   dryRun?: boolean;
 }
@@ -347,6 +383,28 @@ async function executeAction(
         .from('emails')
         .update({ is_categorized: true, categorization_status: 'done' })
         .eq('id', email.id);
+      break;
+    }
+
+    case 'recategorize': {
+      // Recategorize uses AI to re-evaluate a single email with a refinement prompt.
+      // Import is dynamic to avoid circular dependency.
+      const { categorizeEmails } = await import('@/lib/ai/categorize');
+      const userId = account.user_id;
+
+      // Auto-create new categories if specified
+      if (action.config?.newCategories?.length) {
+        await ensureCategories(serviceClient, userId, action.config.newCategories);
+      }
+
+      await categorizeEmails(
+        [email as unknown as import('@/types').Email],
+        userId,
+        {
+          refinementPrompt: action.config?.refinementPrompt,
+          sourceCategory: action.config?.sourceCategory,
+        },
+      );
       break;
     }
 

@@ -300,6 +300,7 @@ const ACTION_OPTIONS: { value: WorkflowActionType; label: string }[] = [
   { value: 'mark_read', label: 'Mark as read' },
   { value: 'mark_unread', label: 'Mark as unread' },
   { value: 'reassign_category', label: 'Reassign category' },
+  { value: 'recategorize', label: 'AI Recategorize' },
 ];
 
 function ActionConfig({
@@ -347,7 +348,84 @@ function ActionConfig({
           </select>
         </FieldLabel>
       )}
+
+      {data.actionType === 'recategorize' && (
+        <>
+          <FieldLabel label="Source Category">
+            <select
+              value={data.config?.sourceCategory ?? ''}
+              onChange={(e) =>
+                onChange({ ...data, config: { ...data.config, sourceCategory: e.target.value } })
+              }
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">All categories</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </FieldLabel>
+          <FieldLabel label="Refinement Prompt">
+            <textarea
+              value={data.config?.refinementPrompt ?? ''}
+              onChange={(e) =>
+                onChange({ ...data, config: { ...data.config, refinementPrompt: e.target.value } })
+              }
+              placeholder="e.g. Separate ads and promotional content from actual shopping orders"
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+            />
+          </FieldLabel>
+          <NewCategoriesInput
+            value={data.config?.newCategories}
+            onChange={(cats) =>
+              onChange({ ...data, config: { ...data.config, newCategories: cats } })
+            }
+          />
+        </>
+      )}
     </>
+  );
+}
+
+// --- New Categories Input (onBlur to allow free typing with commas) ---
+
+function NewCategoriesInput({
+  value,
+  onChange,
+}: {
+  value: string[] | undefined;
+  onChange: (cats: string[] | undefined) => void;
+}) {
+  const [raw, setRaw] = useState((value ?? []).join(', '));
+
+  // Sync from external updates (e.g., AI-generated config)
+  useEffect(() => {
+    setRaw((value ?? []).join(', '));
+  }, [value]);
+
+  return (
+    <FieldLabel label="New Categories to Create">
+      <input
+        type="text"
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={() => {
+          const cats = raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          onChange(cats.length ? cats : undefined);
+        }}
+        placeholder="e.g. Ads, Promotions (comma-separated)"
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      />
+      <span className="text-[10px] text-muted-foreground mt-0.5 block">
+        Categories that don&apos;t exist yet will be auto-created
+      </span>
+    </FieldLabel>
   );
 }
 

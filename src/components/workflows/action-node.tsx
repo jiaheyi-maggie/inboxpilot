@@ -10,6 +10,7 @@ import {
   MailOpen,
   MailX,
   ArrowRight,
+  Sparkles,
   Play,
 } from 'lucide-react';
 import type { ActionNodeData, WorkflowActionType } from '@/types';
@@ -25,6 +26,7 @@ const ACTION_CONFIG: Record<
   mark_read: { label: 'Mark as read', icon: MailOpen, color: 'emerald' },
   mark_unread: { label: 'Mark as unread', icon: MailX, color: 'amber' },
   reassign_category: { label: 'Reassign category', icon: ArrowRight, color: 'purple' },
+  recategorize: { label: 'AI Recategorize', icon: Sparkles, color: 'indigo' },
 };
 
 function ActionNodeInner({ data, selected }: NodeProps) {
@@ -39,6 +41,8 @@ function ActionNodeInner({ data, selected }: NodeProps) {
   let subtitle = '';
   if (actionData.actionType === 'reassign_category' && actionData.config?.category) {
     subtitle = `→ ${actionData.config.category}`;
+  } else if (actionData.actionType === 'recategorize' && actionData.config?.sourceCategory) {
+    subtitle = `Refine: ${actionData.config.sourceCategory}`;
   }
 
   return (
