@@ -14,9 +14,14 @@ import {
   Loader2,
   Zap,
   RotateCcw,
+  CheckSquare,
+  Square,
+  X,
+  MinusSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { CategoryBadge } from './category-badge';
 import {
   DropdownMenu,
@@ -41,11 +46,101 @@ interface EmailListProps {
 export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // Sync local state when parent emails prop changes
   useEffect(() => {
     setLocalEmails(emails);
+    // Clear stale checked IDs when emails change
+    setCheckedIds((prev) => {
+      const validIds = new Set(emails.map((e) => e.id));
+      const next = new Set([...prev].filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
   }, [emails]);
+
+  const toggleChecked = useCallback((emailId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(emailId)) next.delete(emailId);
+      else next.add(emailId);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setCheckedIds((prev) =>
+      prev.size === localEmails.length
+        ? new Set()
+        : new Set(localEmails.map((e) => e.id))
+    );
+  }, [localEmails]);
+
+  const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
+
+  const executeBulkAction = useCallback(
+    async (action: EmailAction) => {
+      if (checkedIds.size === 0) return;
+      setBulkLoading(true);
+      try {
+        const res = await fetch('/api/emails/tree-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            emailIds: [...checkedIds],
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error ?? `Bulk action failed (${res.status})`);
+          return;
+        }
+        const count = checkedIds.size;
+        switch (action) {
+          case 'trash':
+            toast.success(`Trashed ${count} email${count > 1 ? 's' : ''}`);
+            setLocalEmails((prev) => prev.filter((e) => !checkedIds.has(e.id)));
+            onEmailMoved?.();
+            break;
+          case 'archive':
+            toast.success(`Archived ${count} email${count > 1 ? 's' : ''}`);
+            setLocalEmails((prev) => prev.filter((e) => !checkedIds.has(e.id)));
+            onEmailMoved?.();
+            break;
+          case 'star':
+            toast.success(`Starred ${count} email${count > 1 ? 's' : ''}`);
+            setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_starred: true } : e));
+            break;
+          case 'unstar':
+            toast.success(`Unstarred ${count} email${count > 1 ? 's' : ''}`);
+            setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_starred: false } : e));
+            if (systemGroup === 'starred') {
+              setLocalEmails((prev) => prev.filter((e) => !checkedIds.has(e.id)));
+              onEmailMoved?.();
+            }
+            break;
+          case 'mark_read':
+            toast.success(`Marked ${count} as read`);
+            setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_read: true } : e));
+            onEmailMoved?.();
+            break;
+          case 'mark_unread':
+            toast.success(`Marked ${count} as unread`);
+            setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_read: false } : e));
+            onEmailMoved?.();
+            break;
+        }
+        setCheckedIds(new Set());
+      } catch {
+        toast.error('Network error during bulk action');
+      } finally {
+        setBulkLoading(false);
+      }
+    },
+    [checkedIds, onEmailMoved, systemGroup]
+  );
 
   // Structural removal (archive, trash) — update local state + notify tree
   const handleEmailRemoved = useCallback(
@@ -58,8 +153,10 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
   );
 
   // Non-structural update (star, mark_read) — local state only, no tree refresh.
-  // Exception: if the update invalidates system group membership (e.g. unstar in Starred group),
-  // treat it as a removal so the email disappears from the filtered list.
+  // Exceptions:
+  //   1. If the update invalidates system group membership (e.g. unstar in Starred group),
+  //      treat it as a removal so the email disappears from the filtered list.
+  //   2. If is_read changed, refresh unread section (mark_unread should show in unread).
   const handleEmailUpdated = useCallback(
     (emailId: string, updates: Partial<EmailWithCategory>) => {
       const invalidatesGroup =
@@ -73,6 +170,10 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
         setLocalEmails((prev) =>
           prev.map((e) => (e.id === emailId ? { ...e, ...updates } : e))
         );
+        // is_read changes affect the unread section — trigger refresh
+        if ('is_read' in updates) {
+          onEmailMoved?.();
+        }
       }
     },
     [systemGroup, onEmailMoved]
@@ -113,30 +214,96 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
     );
   }
 
+  const hasChecked = checkedIds.size > 0;
+  const allChecked = checkedIds.size === localEmails.length && localEmails.length > 0;
+
   return (
-    <div className="divide-y divide-border">
-      {localEmails.map((email) => (
-        <EmailRow
-          key={email.id}
-          email={email}
-          onSelect={() => setSelectedEmailId(email.id)}
-          onRemoved={handleEmailRemoved}
-          onUpdated={handleEmailUpdated}
-          onCategoryChanged={handleCategoryChanged}
-        />
-      ))}
+    <div>
+      {/* Bulk action bar — appears when any emails are checked */}
+      {hasChecked && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-primary/5 border-b border-border backdrop-blur-sm">
+          <button
+            onClick={toggleAll}
+            className="p-0.5 hover:bg-accent rounded transition-colors"
+            title={allChecked ? 'Deselect all' : 'Select all'}
+          >
+            {allChecked ? (
+              <CheckSquare className="h-4 w-4 text-primary" />
+            ) : (
+              <MinusSquare className="h-4 w-4 text-primary" />
+            )}
+          </button>
+          <span className="text-xs font-medium text-foreground">
+            {checkedIds.size} selected
+          </span>
+          <div className="flex items-center gap-1 ml-2">
+            {bulkLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('archive')}>
+                  <Archive className="h-3.5 w-3.5" />
+                  Archive
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('trash')}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Trash
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('star')}>
+                  <Star className="h-3.5 w-3.5" />
+                  Star
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('mark_read')}>
+                  <MailOpen className="h-3.5 w-3.5" />
+                  Read
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('mark_unread')}>
+                  <Mail className="h-3.5 w-3.5" />
+                  Unread
+                </Button>
+              </>
+            )}
+          </div>
+          <button
+            onClick={clearChecked}
+            className="ml-auto p-1 hover:bg-accent rounded transition-colors"
+            title="Clear selection"
+          >
+            <X className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
+      )}
+
+      <div className="divide-y divide-border">
+        {localEmails.map((email) => (
+          <EmailRow
+            key={email.id}
+            email={email}
+            checked={checkedIds.has(email.id)}
+            onToggleChecked={() => toggleChecked(email.id)}
+            onSelect={() => setSelectedEmailId(email.id)}
+            onRemoved={handleEmailRemoved}
+            onUpdated={handleEmailUpdated}
+            onCategoryChanged={handleCategoryChanged}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 function EmailRow({
   email,
+  checked,
+  onToggleChecked,
   onSelect,
   onRemoved,
   onUpdated,
   onCategoryChanged,
 }: {
   email: EmailWithCategory;
+  checked: boolean;
+  onToggleChecked: () => void;
   onSelect: () => void;
   onRemoved: (id: string) => void;
   onUpdated: (id: string, updates: Partial<EmailWithCategory>) => void;
@@ -255,6 +422,17 @@ function EmailRow({
         >
           <div className="px-4 py-3">
             <div className="flex items-start gap-3 min-w-0">
+              {/* Checkbox */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleChecked(); }}
+                className="mt-0.5 p-0.5 flex-shrink-0 hover:bg-accent rounded transition-colors"
+              >
+                {checked ? (
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                ) : (
+                  <Square className="h-4 w-4 text-muted-foreground/50 group-hover:text-muted-foreground" />
+                )}
+              </button>
               <div className="flex-1 min-w-0">
                 {/* Sender + date row */}
                 <div className="flex items-center gap-2">

@@ -7,6 +7,7 @@ import {
   Trash2,
   Workflow,
   Loader2,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ export function WorkflowList({
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
 
   const handleCreate = useCallback(async () => {
     setCreating(true);
@@ -75,6 +77,28 @@ export function WorkflowList({
     },
     [onToggleEnabled]
   );
+
+  const handleRollback = useCallback(async (id: string, name: string) => {
+    const confirmed = window.confirm(
+      `Roll back all actions performed by "${name}"?\n\nThis will reverse archive, trash, star, and read/unread changes made by this workflow. Category reassignments cannot be reversed.`
+    );
+    if (!confirmed) return;
+
+    setRollingBackId(id);
+    try {
+      const res = await fetch(`/api/workflows/${id}/rollback`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? 'Rollback failed');
+        return;
+      }
+      toast.success(`Rolled back ${data.rolledBack} email${data.rolledBack !== 1 ? 's' : ''}${data.skipped > 0 ? ` (${data.skipped} skipped)` : ''}`);
+    } catch {
+      toast.error('Rollback request failed');
+    } finally {
+      setRollingBackId(null);
+    }
+  }, []);
 
   if (workflows.length === 0) {
     return (
@@ -166,6 +190,21 @@ export function WorkflowList({
                     }`}
                   />
                 </button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => handleRollback(wf.id, wf.name)}
+                  disabled={rollingBackId === wf.id}
+                  title="Roll back actions"
+                >
+                  {rollingBackId === wf.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Undo2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
 
                 <Button
                   variant="ghost"

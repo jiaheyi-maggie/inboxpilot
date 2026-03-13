@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import { trashEmails, archiveEmails, markAsReadBulk, markAsUnreadBulk } from '@/lib/gmail/client';
+import { trashEmails, archiveEmails, markAsReadBulk, markAsUnreadBulk, starEmails, unstarEmails } from '@/lib/gmail/client';
 import { DIMENSIONS } from '@/lib/grouping/engine';
 import { partitionByGmailId, buildActionResult } from '@/lib/email-utils';
 import type { GmailAccount, DimensionKey, TreeActionRequest } from '@/types';
@@ -25,23 +25,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const body = (await request.json()) as TreeActionRequest;
-  const { action, filters, newCategory, configId } = body;
+  const body = (await request.json()) as TreeActionRequest & { emailIds?: string[] };
+  const { action, filters, newCategory, configId, emailIds } = body;
 
   // --- Validate inputs ---
-  const validActions = ['trash', 'archive', 'mark_read', 'mark_unread', 'reassign'] as const;
+  const validActions = ['trash', 'archive', 'mark_read', 'mark_unread', 'reassign', 'star', 'unstar'] as const;
   if (!action || !(validActions as readonly string[]).includes(action)) {
     return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 });
   }
 
-  if (!filters || !Array.isArray(filters) || filters.length === 0) {
-    return NextResponse.json({ error: 'At least one filter is required' }, { status: 400 });
+  // Accept either emailIds (for bulk list actions) or filters (for tree actions)
+  const useDirectIds = Array.isArray(emailIds) && emailIds.length > 0;
+  if (!useDirectIds && (!filters || !Array.isArray(filters) || filters.length === 0)) {
+    return NextResponse.json({ error: 'Either emailIds or filters is required' }, { status: 400 });
   }
 
-  // Validate each filter dimension exists
-  for (const f of filters) {
-    if (!DIMENSIONS[f.dimension]) {
-      return NextResponse.json({ error: `Unknown dimension: ${f.dimension}` }, { status: 400 });
+  // Validate each filter dimension exists (only when using filters)
+  if (!useDirectIds && filters) {
+    for (const f of filters) {
+      if (!DIMENSIONS[f.dimension]) {
+        return NextResponse.json({ error: `Unknown dimension: ${f.dimension}` }, { status: 400 });
+      }
     }
   }
 
@@ -79,10 +83,15 @@ export async function POST(request: NextRequest) {
 
   const gmailAccount = account as GmailAccount;
 
-  // --- Resolve filters to email IDs ---
+  // --- Resolve to email rows ---
+  // When emailIds provided directly (bulk list actions), skip filter resolution
+  if (useDirectIds) {
+    return handleDirectIds(emailIds!, action as string, newCategory, gmailAccount, serviceClient);
+  }
+
   // Same logic as /api/emails: use Supabase for email-table filters, JS for category/date
   const needsCategories =
-    filters.some((f) => CATEGORY_DIMENSIONS.has(f.dimension)) ||
+    filters!.some((f) => CATEGORY_DIMENSIONS.has(f.dimension)) ||
     action === 'reassign';
 
   const selectFields = needsCategories
@@ -360,6 +369,94 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error(`[tree-action] ${action} failed:`, err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Action failed' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Fast path for bulk actions from the email list — IDs are already known.
+ * Fetches emails by ID, then executes the action.
+ */
+async function handleDirectIds(
+  emailIds: string[],
+  action: string,
+  newCategory: string | undefined,
+  account: GmailAccount,
+  serviceClient: ReturnType<typeof createServiceClient>,
+) {
+  const { data: rawRows, error } = await serviceClient
+    .from('emails')
+    .select('id, gmail_message_id, label_ids, is_read, is_starred')
+    .in('id', emailIds);
+
+  if (error || !rawRows || rawRows.length === 0) {
+    return NextResponse.json({ success: true, affected: 0 });
+  }
+
+  type Row = { id: string; gmail_message_id: string | null; label_ids: string[] | null; is_read: boolean; is_starred: boolean };
+  const { valid: rows, invalid: skipped } = partitionByGmailId(rawRows as unknown as Row[]);
+  if (rows.length === 0) {
+    return NextResponse.json({ success: true, affected: 0, skipped: skipped.length });
+  }
+
+  const gmailIds = rows.map((r) => r.gmail_message_id as string);
+  const dbIds = rows.map((r) => r.id as string);
+
+  try {
+    switch (action) {
+      case 'trash': {
+        const result = await trashEmails(account, gmailIds);
+        await Promise.allSettled(
+          rows.map((e) => {
+            const labels = ((e as Row).label_ids ?? []).filter((l) => l !== 'INBOX');
+            if (!labels.includes('TRASH')) labels.push('TRASH');
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id as string);
+          })
+        );
+        return NextResponse.json(buildActionResult('trash', { affected: result.trashed, failed: result.failed }, null).body);
+      }
+      case 'archive': {
+        const result = await archiveEmails(account, gmailIds);
+        await Promise.allSettled(
+          rows.map((e) => {
+            const labels = ((e as Row).label_ids ?? []).filter((l) => l !== 'INBOX');
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id as string);
+          })
+        );
+        return NextResponse.json(buildActionResult('archive', { affected: result.archived, failed: result.failed }, null).body);
+      }
+      case 'star': {
+        const result = await starEmails(account, gmailIds);
+        await serviceClient.from('emails').update({ is_starred: true }).in('id', dbIds);
+        return NextResponse.json(buildActionResult('star', { affected: result.starred, failed: result.failed }, null).body);
+      }
+      case 'unstar': {
+        const result = await unstarEmails(account, gmailIds);
+        await serviceClient.from('emails').update({ is_starred: false }).in('id', dbIds);
+        return NextResponse.json(buildActionResult('unstar', { affected: result.unstarred, failed: result.failed }, null).body);
+      }
+      case 'mark_read': {
+        const unread = rows.filter((r) => (r as Row).is_read === false);
+        if (unread.length === 0) return NextResponse.json({ success: true, affected: 0 });
+        const result = await markAsReadBulk(account, unread.map((r) => r.gmail_message_id as string));
+        await serviceClient.from('emails').update({ is_read: true }).in('id', unread.map((r) => r.id as string));
+        return NextResponse.json(buildActionResult('mark_read', { affected: result.updated, failed: result.failed }, null).body);
+      }
+      case 'mark_unread': {
+        const read = rows.filter((r) => (r as Row).is_read === true);
+        if (read.length === 0) return NextResponse.json({ success: true, affected: 0 });
+        const result = await markAsUnreadBulk(account, read.map((r) => r.gmail_message_id as string));
+        await serviceClient.from('emails').update({ is_read: false }).in('id', read.map((r) => r.id as string));
+        return NextResponse.json(buildActionResult('mark_unread', { affected: result.updated, failed: result.failed }, null).body);
+      }
+      default:
+        return NextResponse.json({ error: `Unsupported bulk action: ${action}` }, { status: 400 });
+    }
+  } catch (err) {
+    console.error(`[tree-action/direct] ${action} failed:`, err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Action failed' },
       { status: 500 }
