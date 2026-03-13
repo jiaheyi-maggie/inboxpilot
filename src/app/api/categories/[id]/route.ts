@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { VIEW_MODES } from '@/types';
+
+const VALID_VIEW_MODES = VIEW_MODES.map((m) => m.value);
 
 /**
  * PUT /api/categories/[id] — Update a category.
@@ -19,11 +22,12 @@ export async function PUT(
   }
 
   const body = await request.json();
-  const { name, description, color, sort_order } = body as {
+  const { name, description, color, sort_order, view_mode_override } = body as {
     name?: string;
     description?: string;
     color?: string | null;
     sort_order?: number;
+    view_mode_override?: string | null;
   };
 
   const serviceClient = createServiceClient();
@@ -59,6 +63,12 @@ export async function PUT(
   }
   if (color !== undefined) updates.color = color;
   if (sort_order !== undefined) updates.sort_order = sort_order;
+  if (view_mode_override !== undefined) {
+    if (view_mode_override !== null && !(VALID_VIEW_MODES as string[]).includes(view_mode_override)) {
+      return NextResponse.json({ error: `Invalid view mode. Must be one of: ${VALID_VIEW_MODES.join(', ')}` }, { status: 400 });
+    }
+    updates.view_mode_override = view_mode_override;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No updates provided' }, { status: 400 });

@@ -16,7 +16,8 @@ import {
 import type { Layout } from 'react-resizable-panels';
 import { createClient } from '@/lib/supabase/client';
 import { EmailDetail } from './email-detail';
-import type { Email, EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig, SystemGroupKey } from '@/types';
+import { viewModeToLevels } from '@/lib/grouping/engine';
+import type { Email, EmailWithCategory, TreeNode as TreeNodeType, GroupingConfig, SystemGroupKey, ViewMode } from '@/types';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -24,6 +25,10 @@ interface EmailTreeProps {
   config: GroupingConfig;
   /** Increment to trigger a full re-fetch (e.g. after sync completes) */
   refreshKey?: number;
+  /** Global default view mode */
+  defaultViewMode?: ViewMode;
+  /** Per-category view mode overrides */
+  viewModeOverrides?: Record<string, ViewMode>;
 }
 
 function TreeSkeleton() {
@@ -41,7 +46,7 @@ function TreeSkeleton() {
   );
 }
 
-export function EmailTree({ config, refreshKey }: EmailTreeProps) {
+export function EmailTree({ config, refreshKey, defaultViewMode = 'by_sender', viewModeOverrides = {} }: EmailTreeProps) {
   const [rootNodes, setRootNodes] = useState<TreeNodeType[]>([]);
   const [selectedEmails, setSelectedEmails] = useState<EmailWithCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -329,22 +334,27 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
         </div>
       ) : (
         <div className="p-3 space-y-0.5">
-          {rootNodes.map((node) => (
-            <TreeNode
-              key={node.group_key}
-              label={node.group_key}
-              count={node.count}
-              dimension={config.levels[0]?.dimension ?? 'category'}
-              level={0}
-              path={[]}
-              configId={config.id}
-              totalLevels={config.levels.length}
-              levels={config.levels}
-              onSelectEmails={handleSelectEmails}
-              selectedPath={selectedPath}
-              onTreeChanged={handleEmailsChanged}
-            />
-          ))}
+          {rootNodes.map((node) => {
+            // Compute effective view mode and levels for this category
+            const effectiveMode = viewModeOverrides[node.group_key] ?? defaultViewMode;
+            const effectiveLevels = viewModeToLevels(effectiveMode);
+            return (
+              <TreeNode
+                key={node.group_key}
+                label={node.group_key}
+                count={node.count}
+                dimension={config.levels[0]?.dimension ?? 'category'}
+                level={0}
+                path={[]}
+                configId={config.id}
+                totalLevels={effectiveLevels.length}
+                levels={effectiveLevels}
+                onSelectEmails={handleSelectEmails}
+                selectedPath={selectedPath}
+                onTreeChanged={handleEmailsChanged}
+              />
+            );
+          })}
         </div>
       )}
     </>
@@ -422,6 +432,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           const params = new URLSearchParams({
             level: String(config.levels.length),
             configId: config.id,
+            leaf: 'true',
             [`filter.${config.levels[0].dimension}`]: groupKey,
           });
           fetch(`/api/emails?${params}`)
@@ -463,7 +474,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           <ResizablePanel id="tree" defaultSize="40%" minSize="20%" maxSize="80%">
             <ScrollArea className="h-full">{treeContent}</ScrollArea>
           </ResizablePanel>
-          <ResizableHandle withHandle />
+          <ResizableHandle />
           <ResizablePanel id="emails" defaultSize="60%" minSize="20%" maxSize="80%">
             <ScrollArea className="h-full">{emailContent}</ScrollArea>
           </ResizablePanel>

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2, GripVertical, Pencil, Check, X } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { VIEW_MODES, type ViewMode } from '@/types';
+
 interface Category {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ interface Category {
   color: string | null;
   sort_order: number;
   is_default: boolean;
+  view_mode_override: ViewMode | null;
 }
 
 export function CategoryManager() {
@@ -97,6 +100,26 @@ export function CategoryManager() {
     setEditingId(null);
     setEditName('');
     setEditDescription('');
+  }, []);
+
+  const handleViewModeChange = useCallback(async (catId: string, mode: ViewMode | null) => {
+    try {
+      const res = await fetch(`/api/categories/${catId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ view_mode_override: mode }),
+      });
+      if (res.ok) {
+        const { category } = await res.json();
+        setCategories((prev) => prev.map((c) => (c.id === catId ? category : c)));
+        const label = VIEW_MODES.find((m) => m.value === mode)?.label ?? mode;
+        toast.success(mode ? `View set to ${label}` : 'Using default view');
+      } else {
+        toast.error('Failed to update view mode');
+      }
+    } catch {
+      toast.error('Failed to update view mode');
+    }
   }, []);
 
   const saveEdit = useCallback(async () => {
@@ -195,6 +218,10 @@ export function CategoryManager() {
                     <p className="text-xs text-muted-foreground truncate">{cat.description}</p>
                   )}
                 </div>
+                <ViewModeSelect
+                  value={cat.view_mode_override}
+                  onChange={(mode) => handleViewModeChange(cat.id, mode)}
+                />
                 <button
                   onClick={() => startEdit(cat)}
                   className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
@@ -274,5 +301,29 @@ export function CategoryManager() {
         </button>
       )}
     </div>
+  );
+}
+
+/** Compact dropdown for per-category view mode override */
+function ViewModeSelect({
+  value,
+  onChange,
+}: {
+  value: ViewMode | null;
+  onChange: (mode: ViewMode | null) => void;
+}) {
+  return (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value ? (e.target.value as ViewMode) : null)}
+      className="text-xs rounded-md border border-border bg-background px-1.5 py-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      title="View mode override (blank = use default)"
+    >
+      <option value="">Default</option>
+      <option value="flat">Flat</option>
+      <option value="by_sender">By Sender</option>
+      <option value="by_date">By Date</option>
+      <option value="by_topic">By Topic</option>
+    </select>
   );
 }

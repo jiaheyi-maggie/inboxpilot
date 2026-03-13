@@ -59,9 +59,9 @@ export async function GET(request: NextRequest) {
   const parentFilters: { dimension: DimensionKey; value: string }[] = [];
   searchParams.forEach((value, key) => {
     if (key.startsWith('filter.')) {
-      const dimension = key.replace('filter.', '') as DimensionKey;
-      if (DIMENSIONS[dimension]) {
-        parentFilters.push({ dimension, value });
+      const rawDim = key.replace('filter.', '');
+      if (DIMENSIONS[rawDim as DimensionKey]) {
+        parentFilters.push({ dimension: rawDim as DimensionKey, value });
       }
     }
   });
@@ -69,13 +69,21 @@ export async function GET(request: NextRequest) {
   const limit = Math.max(1, Math.min(parseInt(searchParams.get('limit') ?? '50', 10) || 50, 200));
   const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0', 10) || 0);
 
-  const isLeaf = currentLevel >= levels.length;
+  // Support per-category view mode overrides via query params.
+  // When `dimension` is passed, force group mode (not leaf) even if currentLevel >= config levels.
+  // When `leaf` is true, force leaf mode regardless of level.
+  const rawDimension = searchParams.get('dimension');
+  const overrideDimension = rawDimension && DIMENSIONS[rawDimension as DimensionKey] ? (rawDimension as DimensionKey) : null;
+  const forceLeaf = searchParams.get('leaf') === 'true';
+  const hasGroupOverride = !!overrideDimension;
+
+  const isLeaf = forceLeaf || (!hasGroupOverride && currentLevel >= levels.length);
 
   if (isLeaf) {
     return handleLeafQuery(serviceClient, account.id, parentFilters, config, limit, offset);
   }
 
-  return handleGroupQuery(serviceClient, account.id, levels, currentLevel, parentFilters, config, limit, offset);
+  return handleGroupQuery(serviceClient, account.id, levels, currentLevel, parentFilters, config, limit, offset, overrideDimension);
 }
 
 /**
@@ -91,8 +99,10 @@ async function handleGroupQuery(
   config: Record<string, unknown>,
   limit: number,
   offset: number,
+  overrideDimension?: DimensionKey | null,
 ) {
-  const targetDimension = levels[currentLevel].dimension;
+  // Allow per-category view mode overrides to specify a different grouping dimension
+  const targetDimension = overrideDimension ?? levels[currentLevel].dimension;
 
   // Determine if we need category data (for grouping or filtering)
   const needsCategories =

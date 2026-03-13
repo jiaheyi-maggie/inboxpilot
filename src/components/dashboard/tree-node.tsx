@@ -43,12 +43,13 @@ export function TreeNode({
 
   const toggle = useCallback(async () => {
     if (isLeaf) {
-      // Fetch emails
+      // Fetch emails — force leaf mode in case effective levels differ from config
       setLoading(true);
       try {
         const params = new URLSearchParams({
           level: String(totalLevels),
           configId,
+          leaf: 'true',
         });
         currentPath.forEach((p) => {
           params.append(`filter.${p.dimension}`, p.value);
@@ -78,6 +79,11 @@ export function TreeNode({
         level: String(level + 1),
         configId,
       });
+      // Pass the effective dimension for this level (supports per-category view mode overrides)
+      const nextLevel = levels[level + 1];
+      if (nextLevel) {
+        params.set('dimension', nextLevel.dimension);
+      }
       currentPath.forEach((p) => {
         params.append(`filter.${p.dimension}`, p.value);
       });
@@ -93,7 +99,7 @@ export function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [expanded, isLeaf, level, totalLevels, configId, currentPath, pathKey, onSelectEmails]);
+  }, [expanded, isLeaf, level, totalLevels, configId, currentPath, pathKey, onSelectEmails, levels]);
 
   const displayLabel = formatLabel(label, dimension);
 

@@ -1,6 +1,5 @@
 "use client"
 
-import { GripVerticalIcon } from "lucide-react"
 import * as ResizablePrimitive from "react-resizable-panels"
 
 import { cn } from "@/lib/utils"
@@ -32,9 +31,12 @@ function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
  * The library controls separator sizing via inline styles (flexBasis, flexGrow, flexShrink).
  * CSS width classes conflict with the drag calculation and cause collapse-to-zero bugs.
  * Use the `style` prop with flexBasis to set separator thickness instead.
+ *
+ * Design: 8px invisible hit area with a 1px centered line. Hover/active show
+ * a subtle primary tint. No grip icon — clean, modern look (Linear/Superhuman).
  */
 function ResizableHandle({
-  withHandle,
+  withHandle: _,
   className,
   ...props
 }: ResizablePrimitive.SeparatorProps & {
@@ -44,18 +46,19 @@ function ResizableHandle({
     <ResizablePrimitive.Separator
       data-slot="resizable-handle"
       className={cn(
-        "relative flex items-center justify-center bg-border/40 transition-colors hover:bg-border/80 active:bg-primary/20 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden cursor-col-resize [&[aria-orientation=horizontal]]:cursor-row-resize [&[aria-orientation=horizontal]>div]:rotate-90",
+        "relative flex items-center justify-center bg-transparent cursor-col-resize",
+        "focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+        // Thin centered line via pseudo-element
+        "before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2",
+        "before:bg-border before:transition-colors",
+        "hover:before:bg-primary/40 active:before:bg-primary/60",
+        // Horizontal orientation (between vertical panels)
+        "[&[aria-orientation=horizontal]]:cursor-row-resize",
         className
       )}
-      style={{ flexBasis: "6px" }}
+      style={{ flexBasis: "8px" }}
       {...props}
-    >
-      {withHandle && (
-        <div className="absolute z-10 flex h-8 w-4 items-center justify-center rounded-sm border bg-background shadow-sm cursor-col-resize">
-          <GripVerticalIcon className="size-3 text-muted-foreground" />
-        </div>
-      )}
-    </ResizablePrimitive.Separator>
+    />
   )
 }
 

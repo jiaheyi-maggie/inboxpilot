@@ -1,4 +1,4 @@
-import type { DimensionDef, DimensionKey, GroupingLevel, TreeNode, EmailWithCategory } from '@/types';
+import type { DimensionDef, DimensionKey, GroupingLevel, ViewMode } from '@/types';
 
 export const DIMENSIONS: Record<DimensionKey, DimensionDef> = {
   category: {
@@ -56,6 +56,24 @@ export const DIMENSIONS: Record<DimensionKey, DimensionDef> = {
     description: 'Read or unread',
   },
 };
+
+/**
+ * Convert a ViewMode to its corresponding GroupingLevel array.
+ * L1 is always 'category'. The view mode determines L2 (or no L2 for flat).
+ *
+ * Returns stable module-level references — safe to pass as React props
+ * without breaking memo/useCallback identity checks.
+ */
+const VIEW_MODE_LEVELS: Record<ViewMode, GroupingLevel[]> = {
+  flat: [{ dimension: 'category', label: 'Category' }],
+  by_sender: [{ dimension: 'category', label: 'Category' }, { dimension: 'sender', label: 'Sender' }],
+  by_date: [{ dimension: 'category', label: 'Category' }, { dimension: 'date_month', label: 'Month' }],
+  by_topic: [{ dimension: 'category', label: 'Category' }, { dimension: 'topic', label: 'Topic' }],
+};
+
+export function viewModeToLevels(mode: ViewMode): GroupingLevel[] {
+  return VIEW_MODE_LEVELS[mode] ?? VIEW_MODE_LEVELS.by_sender;
+}
 
 export function getAvailableDimensions(
   selectedDimensions: DimensionKey[]

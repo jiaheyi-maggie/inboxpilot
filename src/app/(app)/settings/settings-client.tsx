@@ -1,49 +1,22 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { GroupingBuilder } from '@/components/settings/grouping-builder';
+import { ViewModePickerWithSave } from '@/components/settings/view-mode-picker';
 import { CategoryManager } from '@/components/settings/category-manager';
-import type { GroupingLevel } from '@/types';
+import type { ViewMode } from '@/types';
 
 interface SettingsClientProps {
-  initialLevels: GroupingLevel[];
-  initialDateStart: string | null;
-  initialDateEnd: string | null;
+  initialViewMode: ViewMode;
   initialAutoCategorizeUnread: boolean;
 }
 
 export function SettingsClient({
-  initialLevels,
-  initialDateStart,
-  initialDateEnd,
+  initialViewMode,
   initialAutoCategorizeUnread,
 }: SettingsClientProps) {
-  const router = useRouter();
   const [autoCategorize, setAutoCategorize] = useState(initialAutoCategorizeUnread);
   const [savingPrefs, setSavingPrefs] = useState(false);
-
-  const handleSave = useCallback(
-    async (config: {
-      levels: GroupingLevel[];
-      date_range_start: string | null;
-      date_range_end: string | null;
-    }) => {
-      const res = await fetch('/api/settings/grouping', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to save');
-      }
-
-      router.refresh();
-    },
-    [router]
-  );
 
   const handleToggleAutoCategorize = useCallback(async () => {
     const newValue = !autoCategorize;
@@ -71,18 +44,15 @@ export function SettingsClient({
         </p>
       </div>
 
-      <GroupingBuilder
-        initialLevels={initialLevels}
-        initialDateStart={initialDateStart}
-        initialDateEnd={initialDateEnd}
-        onSave={handleSave}
-      />
+      {/* View mode picker (replaces old GroupingBuilder) */}
+      <ViewModePickerWithSave initialValue={initialViewMode} />
 
       {/* Categories section */}
       <div>
         <h2 className="text-sm font-semibold mb-1">Categories</h2>
         <p className="text-xs text-muted-foreground mb-3">
           Customize how your emails are categorized. Add descriptions to help the AI understand each category.
+          You can set a per-category view mode override on each category.
         </p>
         <CategoryManager />
       </div>

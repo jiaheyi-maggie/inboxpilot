@@ -7,6 +7,8 @@ import {
   Mail,
   User,
   Calendar,
+  MessageSquare,
+  List,
   ChevronRight,
   Sparkles,
   Loader2,
@@ -20,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import type { DimensionKey, GroupingLevel } from '@/types';
+import type { ViewMode, GroupingLevel } from '@/types';
 
 // --- Types ---
 
@@ -49,42 +51,23 @@ const TEMPLATES = [
   { key: 'minimal', label: 'Minimal', icon: Inbox },
 ];
 
-const PRIMARY_OPTIONS: {
-  id: DimensionKey;
+const VIEW_MODE_OPTIONS: {
+  id: ViewMode;
   label: string;
   desc: string;
   icon: typeof Mail;
 }[] = [
-  { id: 'category', label: 'Topic', desc: 'AI auto-sorts by what emails are about', icon: Sparkles },
-  { id: 'sender', label: 'Sender', desc: 'Who sent the email', icon: User },
-  { id: 'date_month', label: 'Date', desc: 'When you received it', icon: Calendar },
+  { id: 'flat', label: 'Flat', desc: 'All emails directly in each category', icon: List },
+  { id: 'by_sender', label: 'By Sender', desc: 'Group by who sent the email', icon: User },
+  { id: 'by_date', label: 'By Date', desc: 'Group by when you received it', icon: Calendar },
+  { id: 'by_topic', label: 'By Topic', desc: 'Group by AI-detected topic', icon: MessageSquare },
 ];
 
-const SUB_OPTIONS: Record<string, { id: DimensionKey | 'none'; label: string }[]> = {
-  category: [
-    { id: 'sender', label: 'Then by sender' },
-    { id: 'date_month', label: 'Then by date' },
-    { id: 'none' as const, label: 'No sub-group' },
-  ],
-  sender: [
-    { id: 'category', label: 'Then by topic' },
-    { id: 'date_month', label: 'Then by date' },
-    { id: 'none' as const, label: 'No sub-group' },
-  ],
-  date_month: [
-    { id: 'category', label: 'Then by topic' },
-    { id: 'sender', label: 'Then by sender' },
-    { id: 'none' as const, label: 'No sub-group' },
-  ],
-};
-
-const DIMENSION_LABELS: Record<string, string> = {
-  category: 'Category',
-  sender: 'Sender',
-  sender_domain: 'Domain',
-  date_month: 'Month',
-  date_week: 'Week',
-  topic: 'Topic',
+const VIEW_MODE_LABELS: Record<ViewMode, string> = {
+  flat: 'Flat',
+  by_sender: 'By Sender',
+  by_date: 'By Date',
+  by_topic: 'By Topic',
 };
 
 // --- Component ---
@@ -104,9 +87,8 @@ export function SetupWizard() {
   const [editCategories, setEditCategories] = useState<GeneratedCategory[]>([]);
   const [selectedWorkflows, setSelectedWorkflows] = useState<Set<number>>(new Set());
 
-  // Manual fallback (step 1/2 picker)
-  const [level1, setLevel1] = useState<DimensionKey>('category');
-  const [level2, setLevel2] = useState<DimensionKey | 'none'>('sender');
+  // View mode selection (replaces old L1/L2 picker)
+  const [viewMode, setViewMode] = useState<ViewMode>('by_sender');
 
   const [saving, setSaving] = useState(false);
   const [addingCategory, setAddingCategory] = useState(false);
@@ -133,15 +115,34 @@ export function SetupWizard() {
       setGeneratedSetup(setup);
       setEditCategories(setup.categories);
       setSelectedWorkflows(new Set(setup.workflows.map((_, i) => i)));
-      // Pre-fill manual fallback from generated grouping
-      if (setup.grouping[0]) setLevel1(setup.grouping[0].dimension);
-      if (setup.grouping[1]) setLevel2(setup.grouping[1].dimension);
-      else setLevel2('none');
+      // Infer view mode from generated grouping levels
+      if (setup.grouping.length >= 2) {
+        const sub = setup.grouping[1].dimension;
+        if (sub === 'sender' || sub === 'sender_domain') setViewMode('by_sender');
+        else if (sub === 'date_month' || sub === 'date_week') setViewMode('by_date');
+        else if (sub === 'topic') setViewMode('by_topic');
+        else setViewMode('by_sender');
+      } else {
+        setViewMode('flat');
+      }
       setStep('review');
     } catch {
       toast.error('Failed to generate setup');
     } finally {
       setGenerating(false);
+    }
+  }, []);
+
+  // --- Save view mode to preferences + sync grouping config ---
+
+  const saveViewMode = useCallback(async (mode: ViewMode) => {
+    const res = await fetch('/api/settings/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_view_mode: mode }),
+    });
+    if (!res.ok) {
+      throw new Error('Failed to save view mode');
     }
   }, []);
 
@@ -163,22 +164,8 @@ export function SetupWizard() {
         }
       }
 
-      // 2. Save grouping (use level1/level2 state, which reflects user's edits)
-      const levels: GroupingLevel[] = [
-        { dimension: level1, label: DIMENSION_LABELS[level1] ?? level1 },
-      ];
-      if (level2 !== 'none') {
-        levels.push({ dimension: level2, label: DIMENSION_LABELS[level2] ?? level2 });
-      }
-      const groupRes = await fetch('/api/settings/grouping', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ levels, date_range_start: null, date_range_end: null }),
-      });
-      if (!groupRes.ok) {
-        toast.error('Failed to save organization settings');
-        return;
-      }
+      // 2. Save view mode (also syncs grouping_configs)
+      await saveViewMode(viewMode);
 
       // 3. Create selected workflows (parallel with error isolation)
       const workflowEntries = Array.from(selectedWorkflows)
@@ -221,29 +208,14 @@ export function SetupWizard() {
     } finally {
       setSaving(false);
     }
-  }, [generatedSetup, editCategories, selectedWorkflows, level1, level2, router]);
+  }, [generatedSetup, editCategories, selectedWorkflows, viewMode, router, saveViewMode]);
 
   // --- Manual finish (skip AI) ---
 
   const handleManualFinish = useCallback(async () => {
     setSaving(true);
-    const levels: GroupingLevel[] = [
-      { dimension: level1, label: DIMENSION_LABELS[level1] ?? level1 },
-    ];
-    if (level2 !== 'none') {
-      levels.push({ dimension: level2, label: DIMENSION_LABELS[level2] ?? level2 });
-    }
-
     try {
-      const res = await fetch('/api/settings/grouping', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ levels, date_range_start: null, date_range_end: null }),
-      });
-      if (!res.ok) {
-        toast.error('Failed to save settings');
-        return;
-      }
+      await saveViewMode(viewMode);
       fetch('/api/sync', { method: 'POST' }).catch(() => {});
       router.push('/dashboard');
     } catch {
@@ -251,15 +223,7 @@ export function SetupWizard() {
     } finally {
       setSaving(false);
     }
-  }, [level1, level2, router]);
-
-  const handleLevel1Change = (id: DimensionKey) => {
-    setLevel1(id);
-    const subs = SUB_OPTIONS[id] ?? [];
-    if (!subs.find((s) => s.id === level2)) {
-      setLevel2(subs[0]?.id ?? 'none');
-    }
-  };
+  }, [viewMode, router, saveViewMode]);
 
   const removeCategory = (idx: number) => {
     setEditCategories((prev) => prev.filter((_, i) => i !== idx));
@@ -474,18 +438,18 @@ export function SetupWizard() {
             </div>
           </div>
 
-          {/* Organization */}
+          {/* View Mode */}
           <div className="bg-card rounded-2xl border border-border p-5 mb-3 shadow-sm">
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
               <FolderTree className="h-4 w-4 text-primary" />
-              Organization
+              View Mode
             </h3>
-            <p className="text-sm text-muted-foreground">
-              {generatedSetup.grouping.map((g) => g.label).join(' → ')}
+            <p className="text-sm text-muted-foreground mb-3">
+              Within each category: <span className="font-medium text-foreground">{VIEW_MODE_LABELS[viewMode]}</span>
             </p>
             <button
               onClick={() => setStep('manual')}
-              className="text-xs text-primary hover:underline mt-1"
+              className="text-xs text-primary hover:underline"
             >
               Customize
             </button>
@@ -552,9 +516,7 @@ export function SetupWizard() {
     );
   }
 
-  // Manual setup (original step 1/2 picker — with CSS variable colors)
-  const subLabel = level2 !== 'none' ? DIMENSION_LABELS[level2] ?? level2 : null;
-
+  // Manual setup — View Mode picker (replaces old L1/L2 dimension picker)
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex-1 max-w-md mx-auto w-full px-4 py-10">
@@ -567,28 +529,25 @@ export function SetupWizard() {
             Organize your inbox
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Pick how to group your emails — AI handles the rest.
+            Your emails are sorted into category folders. Pick how to view emails within each category.
           </p>
         </div>
 
-        {/* Step 1 */}
+        {/* View Mode Selection */}
         <div className="bg-card rounded-2xl border border-border p-5 mb-3 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-              1
-            </div>
             <span className="text-sm font-semibold text-foreground">
-              First, organize by...
+              Within each category, show emails...
             </span>
           </div>
           <div className="space-y-2">
-            {PRIMARY_OPTIONS.map((opt) => {
-              const active = level1 === opt.id;
+            {VIEW_MODE_OPTIONS.map((opt) => {
+              const active = viewMode === opt.id;
               const Icon = opt.icon;
               return (
                 <button
                   key={opt.id}
-                  onClick={() => handleLevel1Change(opt.id)}
+                  onClick={() => setViewMode(opt.id)}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
                     active
                       ? 'border-primary bg-primary/5'
@@ -616,36 +575,6 @@ export function SetupWizard() {
           </div>
         </div>
 
-        {/* Step 2 */}
-        <div className="bg-card rounded-2xl border border-border p-5 mb-3 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-              2
-            </div>
-            <span className="text-sm font-semibold text-foreground">
-              Then within each group...
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {(SUB_OPTIONS[level1] ?? []).map((opt) => {
-              const active = level2 === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => setLevel2(opt.id)}
-                  className={`px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
-                    active
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Preview */}
         <div className="bg-primary/5 rounded-2xl border border-primary/10 p-5 mb-6">
           <div className="text-xs font-bold text-primary mb-3">
@@ -654,17 +583,17 @@ export function SetupWizard() {
           <div className="text-sm font-semibold text-primary space-y-1">
             <div className="flex items-center gap-1.5">
               <FolderTree className="h-4 w-4" />
-              {PRIMARY_OPTIONS.find((o) => o.id === level1)?.label}
+              Category (Work, Personal, ...)
             </div>
-            {subLabel && (
+            {viewMode !== 'flat' && (
               <div className="flex items-center gap-1.5 ml-5 text-primary/70">
                 <FolderTree className="h-3.5 w-3.5" />
-                {subLabel}
+                {VIEW_MODE_LABELS[viewMode]}
               </div>
             )}
             <div
               className={`flex items-center gap-1.5 text-primary/50 font-medium ${
-                subLabel ? 'ml-10' : 'ml-5'
+                viewMode !== 'flat' ? 'ml-10' : 'ml-5'
               }`}
             >
               <Mail className="h-3.5 w-3.5" />

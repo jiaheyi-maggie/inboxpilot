@@ -101,10 +101,22 @@ export interface EmailWithCategory extends Email {
   confidence: number | null;
 }
 
+// --- View Modes ---
+
+export type ViewMode = 'flat' | 'by_sender' | 'by_date' | 'by_topic';
+
+export const VIEW_MODES: { value: ViewMode; label: string; description: string }[] = [
+  { value: 'flat', label: 'Flat', description: 'All emails in each category' },
+  { value: 'by_sender', label: 'By Sender', description: 'Group by sender within each category' },
+  { value: 'by_date', label: 'By Date', description: 'Group by month within each category' },
+  { value: 'by_topic', label: 'By Topic', description: 'Group by topic within each category' },
+];
+
 export interface UserPreferences {
   id: string;
   user_id: string;
   auto_categorize_unread: boolean;
+  default_view_mode: ViewMode;
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +173,7 @@ export interface UserCategory {
   color: string | null;
   sort_order: number;
   is_default: boolean;
+  view_mode_override: ViewMode | null;
   created_at: string;
 }
 

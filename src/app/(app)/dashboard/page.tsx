@@ -1,6 +1,7 @@
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardClient } from './dashboard-client';
+import type { ViewMode } from '@/types';
 
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
@@ -12,7 +13,7 @@ export default async function DashboardPage() {
 
   const serviceClient = createServiceClient();
 
-  // Get active grouping config
+  // Config query must resolve first — we redirect if missing
   const { data: config } = await serviceClient
     .from('grouping_configs')
     .select('*')
@@ -21,21 +22,42 @@ export default async function DashboardPage() {
     .limit(1)
     .single();
 
-  // No config yet — send to setup wizard
   if (!config) redirect('/setup');
 
-  // Get Gmail account status (for auto-sync check)
-  const { data: account } = await serviceClient
-    .from('gmail_accounts')
-    .select('id, email, last_sync_at, sync_enabled, granted_scope')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+  // Remaining queries are independent — run in parallel
+  const [{ data: prefs }, { data: categories }, { data: account }] = await Promise.all([
+    serviceClient
+      .from('user_preferences')
+      .select('default_view_mode')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single(),
+    serviceClient
+      .from('user_categories')
+      .select('name, view_mode_override')
+      .eq('user_id', user.id)
+      .not('view_mode_override', 'is', null),
+    serviceClient
+      .from('gmail_accounts')
+      .select('id, email, last_sync_at, sync_enabled, granted_scope')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single(),
+  ]);
+
+  const viewModeOverrides: Record<string, ViewMode> = {};
+  for (const cat of categories ?? []) {
+    if (cat.view_mode_override) {
+      viewModeOverrides[cat.name] = cat.view_mode_override as ViewMode;
+    }
+  }
 
   return (
     <DashboardClient
       config={config}
       account={account}
+      defaultViewMode={(prefs?.default_view_mode as ViewMode) ?? 'by_sender'}
+      viewModeOverrides={viewModeOverrides}
     />
   );
 }

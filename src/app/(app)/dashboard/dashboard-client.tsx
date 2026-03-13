@@ -5,16 +5,20 @@ import { useRouter } from 'next/navigation';
 import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmailTree } from '@/components/dashboard/email-tree';
-import type { GroupingConfig, GmailAccount } from '@/types';
+import type { GroupingConfig, GmailAccount, ViewMode } from '@/types';
 
 interface DashboardClientProps {
   config: GroupingConfig | null;
   account: Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope'> | null;
+  defaultViewMode: ViewMode;
+  viewModeOverrides: Record<string, ViewMode>;
 }
 
 export function DashboardClient({
   config,
   account,
+  defaultViewMode,
+  viewModeOverrides,
 }: DashboardClientProps) {
   const router = useRouter();
   const autoSyncTriggered = useRef(false);
@@ -50,7 +54,12 @@ export function DashboardClient({
   return (
     <div className="h-full">
       {config ? (
-        <EmailTree config={config} refreshKey={treeRefreshKey} />
+        <EmailTree
+          config={config}
+          refreshKey={treeRefreshKey}
+          defaultViewMode={defaultViewMode}
+          viewModeOverrides={viewModeOverrides}
+        />
       ) : (
         <div className="flex items-center justify-center h-full text-muted-foreground text-sm px-4 text-center">
           <div>
