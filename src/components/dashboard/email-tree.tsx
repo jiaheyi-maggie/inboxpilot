@@ -54,6 +54,7 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
   const [systemGroupEmails, setSystemGroupEmails] = useState<EmailWithCategory[]>([]);
   const [systemGroupLoading, setSystemGroupLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
+  const [emailsLoading, setEmailsLoading] = useState(false);
   const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   // Suppress realtime INSERT toasts until after initial data load completes.
@@ -274,7 +275,16 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     if (typeof window === 'undefined') return undefined;
     try {
       const raw = localStorage.getItem(LAYOUT_KEY);
-      if (raw) return JSON.parse(raw) as Layout;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Layout;
+        // Validate: each panel value should be a reasonable percentage (0-100)
+        const values = Object.values(parsed);
+        if (values.length >= 2 && values.every((v) => typeof v === 'number' && v >= 5 && v <= 95)) {
+          return parsed;
+        }
+        // Corrupt/outdated layout — clear it
+        localStorage.removeItem(LAYOUT_KEY);
+      }
     } catch { /* ignore corrupt data */ }
     return undefined;
   });
@@ -350,9 +360,9 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
       <>
         <button
           onClick={() => { setSelectedSystemGroup(null); setSelectedPath(null); }}
-          className="lg:hidden p-3 text-sm text-primary font-medium"
+          className="p-3 text-sm text-primary font-medium"
         >
-          &larr; Back to tree
+          &larr; Back to overview
         </button>
         <EmailList emails={systemGroupEmails} onEmailMoved={handleSystemGroupEmailMoved} systemGroup={selectedSystemGroup} />
       </>
@@ -361,9 +371,9 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     <>
       <button
         onClick={() => { setUnreadSelectedEmail(null); setSelectedPath(null); }}
-        className="lg:hidden p-3 text-sm text-primary font-medium"
+        className="p-3 text-sm text-primary font-medium"
       >
-        &larr; Back to tree
+        &larr; Back to overview
       </button>
       <EmailDetail
         email={unreadSelectedEmail}
@@ -377,11 +387,22 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
     <>
       <button
         onClick={() => setSelectedPath(null)}
-        className="lg:hidden p-3 text-sm text-primary font-medium"
+        className="p-3 text-sm text-primary font-medium"
       >
-        &larr; Back to tree
+        &larr; Back to overview
       </button>
-      <EmailList emails={selectedEmails} onEmailMoved={handleEmailMoved} />
+      {emailsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading emails...</span>
+        </div>
+      ) : selectedEmails.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-sm">No emails in this group</p>
+        </div>
+      ) : (
+        <EmailList emails={selectedEmails} onEmailMoved={handleEmailMoved} />
+      )}
     </>
   ) : (
     <InboxOverview
@@ -394,6 +415,8 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           // Build the path key like TreeNode does
           const pathKey = `${config.levels[0].dimension}:${groupKey}`;
           setSelectedPath(pathKey);
+          setSelectedEmails([]); // Clear stale emails
+          setEmailsLoading(true);
           // Always fetch leaf-level emails — overview is a shortcut to see
           // all emails in a group, not to drill into sub-levels
           const params = new URLSearchParams({
@@ -408,7 +431,8 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
                 setSelectedEmails(data.data);
               }
             })
-            .catch(console.error);
+            .catch(console.error)
+            .finally(() => setEmailsLoading(false));
         }
       }}
     />
@@ -436,11 +460,11 @@ export function EmailTree({ config, refreshKey }: EmailTreeProps) {
           onLayoutChanged={handleLayoutChanged}
           {...(savedLayout ? { defaultLayout: savedLayout } : {})}
         >
-          <ResizablePanel id="tree" defaultSize={25} minSize={10} maxSize={80}>
+          <ResizablePanel id="tree" defaultSize="40%" minSize="20%" maxSize="80%">
             <ScrollArea className="h-full">{treeContent}</ScrollArea>
           </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel id="emails" defaultSize={75} minSize={10}>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="emails" defaultSize="60%" minSize="20%" maxSize="80%">
             <ScrollArea className="h-full">{emailContent}</ScrollArea>
           </ResizablePanel>
         </ResizablePanelGroup>

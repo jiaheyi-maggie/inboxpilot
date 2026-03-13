@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const body = await request.json();
-  const { emailId } = body;
+  const { emailId, graph: requestGraph } = body;
 
   if (!emailId) {
     return NextResponse.json({ error: 'emailId is required' }, { status: 400 });
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     confidence: cat?.confidence as number ?? null,
   };
 
-  // Execute in dry-run mode
-  const graph = workflow.graph as WorkflowGraph;
+  // Use graph from request (current canvas state) if provided, else fall back to DB
+  const graph = (requestGraph ?? workflow.graph) as WorkflowGraph;
   const result = await executeWorkflow(graph, emailData, account as GmailAccount, { dryRun: true });
 
   // Record the test run

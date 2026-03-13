@@ -44,7 +44,7 @@ function ResizableHandle({
     <ResizablePrimitive.Separator
       data-slot="resizable-handle"
       className={cn(
-        "relative flex items-center justify-center bg-border/40 transition-colors hover:bg-border/80 active:bg-primary/20 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden [&[aria-orientation=horizontal]>div]:rotate-90",
+        "relative flex items-center justify-center bg-border/40 transition-colors hover:bg-border/80 active:bg-primary/20 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden cursor-col-resize [&[aria-orientation=horizontal]]:cursor-row-resize [&[aria-orientation=horizontal]>div]:rotate-90",
         className
       )}
       style={{ flexBasis: "6px" }}

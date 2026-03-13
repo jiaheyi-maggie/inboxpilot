@@ -9,12 +9,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { WorkflowExecutionStep } from '@/types';
+import type { WorkflowExecutionStep, WorkflowGraph } from '@/types';
 
 interface TestRunDialogProps {
   open: boolean;
   onClose: () => void;
   workflowId: string;
+  /** Current graph from the canvas — used so unsaved changes are tested */
+  graph?: WorkflowGraph;
   onStepsResolved?: (steps: WorkflowExecutionStep[]) => void;
 }
 
@@ -29,6 +31,7 @@ export function TestRunDialog({
   open,
   onClose,
   workflowId,
+  graph,
   onStepsResolved,
 }: TestRunDialogProps) {
   const [emails, setEmails] = useState<EmailOption[]>([]);
@@ -74,7 +77,7 @@ export function TestRunDialog({
       const res = await fetch(`/api/workflows/${workflowId}/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailId: selectedEmailId }),
+        body: JSON.stringify({ emailId: selectedEmailId, graph }),
       });
       const data = await res.json();
       if (!res.ok) {

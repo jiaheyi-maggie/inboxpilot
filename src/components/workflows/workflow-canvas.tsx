@@ -325,6 +325,21 @@ export function WorkflowCanvas({ workflow, onSave }: WorkflowCanvasProps) {
         open={showTestDialog}
         onClose={() => setShowTestDialog(false)}
         workflowId={workflow.id}
+        graph={{
+          nodes: nodes.map((n) => ({
+            id: n.id,
+            type: n.type as WorkflowNodeType,
+            position: n.position,
+            data: n.data as unknown as TriggerNodeData | ConditionNodeData | ActionNodeData,
+          })),
+          edges: edges.map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            sourceHandle: e.sourceHandle ?? null,
+            label: typeof e.label === 'string' ? e.label : undefined,
+          })),
+        }}
       />
     </div>
   );
