@@ -112,14 +112,15 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
           case 'star':
             toast.success(`Starred ${count} email${count > 1 ? 's' : ''}`);
             setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_starred: true } : e));
+            onEmailMoved?.();
             break;
           case 'unstar':
             toast.success(`Unstarred ${count} email${count > 1 ? 's' : ''}`);
             setLocalEmails((prev) => prev.map((e) => checkedIds.has(e.id) ? { ...e, is_starred: false } : e));
             if (systemGroup === 'starred') {
               setLocalEmails((prev) => prev.filter((e) => !checkedIds.has(e.id)));
-              onEmailMoved?.();
             }
+            onEmailMoved?.();
             break;
           case 'mark_read':
             toast.success(`Marked ${count} as read`);
@@ -170,8 +171,8 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
         setLocalEmails((prev) =>
           prev.map((e) => (e.id === emailId ? { ...e, ...updates } : e))
         );
-        // is_read changes affect the unread section — trigger refresh
-        if ('is_read' in updates) {
+        // is_read/is_starred changes affect system groups — trigger refresh
+        if ('is_read' in updates || 'is_starred' in updates) {
           onEmailMoved?.();
         }
       }

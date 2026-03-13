@@ -40,16 +40,11 @@ export function SystemGroups({ selectedGroup, onSelectGroup, refreshKey }: Syste
     fetchCounts();
   }, [fetchCounts, refreshKey]);
 
-  // Don't render if all counts are 0
-  const totalCount = counts.starred + counts.archived + counts.trash;
-  if (totalCount === 0) return null;
-
   return (
     <div className="px-3 pt-2 pb-1">
       <div className="flex items-center gap-1">
         {GROUP_CONFIG.map(({ key, label, icon: Icon }) => {
           const count = counts[key];
-          if (count === 0) return null;
           const isSelected = selectedGroup === key;
 
           return (

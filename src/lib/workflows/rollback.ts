@@ -162,37 +162,60 @@ function getReverseAction(forwardAction: string): ReverseAction {
       };
 
     case 'reassign_category':
-      return null; // Original category not stored; cannot reverse
+      // Can only reverse if original category was stored in the run log (previous_state)
+      // This is handled specially in rollbackWorkflow — return a marker action
+      return {
+        label: 'restore original category',
+        applyDb: async (sc, _ids, _emails) => {
+          // No-op: handled per-email in rollbackWorkflow since each email may have a different original category
+        },
+        applyGmail: async () => {
+          // No Gmail API call needed for category changes
+          return { succeeded: 0, failed: 0 };
+        },
+      };
 
     default:
       return null;
   }
 }
 
+interface ParsedLogAction {
+  action: string;
+  previousState?: { category?: string };
+}
+
 /**
- * Parse the action type from a workflow_run log entry's detail field.
+ * Parse actions and previous state from a workflow_run log.
  * Log entries follow the pattern: "Backfill: applied <action>" or
  * "Backfill: applied <action1> + <action2>" for chained actions.
  * Also handles engine-produced logs like "Executed: <action>".
+ * For reassign_category, extracts previous_state.category if available.
  */
-function parseActionsFromLog(log: WorkflowExecutionStep[]): string[] {
-  const actions: string[] = [];
+function parseActionsFromLog(log: WorkflowExecutionStep[]): ParsedLogAction[] {
+  const actions: ParsedLogAction[] = [];
 
   for (const entry of log) {
     if (!entry.detail) continue;
+
+    // Extract previous_state if present (stored by backfill for reassign_category)
+    const previousState = (entry as unknown as Record<string, unknown>).previous_state as
+      { category?: string } | undefined;
 
     // Pattern: "Backfill: applied archive" or "Backfill: applied star + mark_read"
     const backfillMatch = entry.detail.match(/^Backfill: applied (.+)$/);
     if (backfillMatch) {
       const actionParts = backfillMatch[1].split(/\s*\+\s*/);
-      actions.push(...actionParts.map((a) => a.trim()));
+      for (const a of actionParts) {
+        actions.push({ action: a.trim(), previousState });
+      }
       continue;
     }
 
     // Pattern: "Executed: archive" or "Executed: star"
     const executedMatch = entry.detail.match(/^Executed: (\w+)/);
     if (executedMatch) {
-      actions.push(executedMatch[1]);
+      actions.push({ action: executedMatch[1], previousState });
     }
   }
 
@@ -237,6 +260,7 @@ export async function rollbackWorkflow(
 
   // --- 2. Group runs by action type for batch processing ---
   // Each run may have multiple actions (chained). We group emails by reverse-action.
+  // For reassign_category, also track per-email original categories.
   interface PendingRollback {
     reverse: NonNullable<ReverseAction>;
     runIds: string[];
@@ -244,6 +268,8 @@ export async function rollbackWorkflow(
   }
 
   const rollbackMap = new Map<string, PendingRollback>();
+  // Per-email original category for reassign_category rollback
+  const categoryRollbackMap = new Map<string, string>(); // emailId → original category
 
   for (const run of runs) {
     if (!run.email_id) {
@@ -253,19 +279,30 @@ export async function rollbackWorkflow(
     }
 
     const log = run.log as WorkflowExecutionStep[];
-    const actions = parseActionsFromLog(log);
+    const parsedActions = parseActionsFromLog(log);
 
-    if (actions.length === 0) {
+    if (parsedActions.length === 0) {
       skipped++;
       details.push(`Run ${run.id}: no parseable action in log, skipped`);
       continue;
     }
 
-    for (const action of actions) {
+    for (const { action, previousState } of parsedActions) {
+      // For reassign_category, check if we have the original category
+      if (action === 'reassign_category') {
+        if (previousState?.category) {
+          categoryRollbackMap.set(run.email_id, previousState.category);
+        } else {
+          skipped++;
+          details.push(`Run ${run.id}: reassign_category has no previous_state, skipped`);
+          continue;
+        }
+      }
+
       const reverse = getReverseAction(action);
       if (!reverse) {
         skipped++;
-        details.push(`Run ${run.id}: unable to rollback "${action}" (original state not stored)`);
+        details.push(`Run ${run.id}: unable to rollback "${action}"`);
         continue;
       }
 
@@ -287,6 +324,44 @@ export async function rollbackWorkflow(
   // --- 3. Execute each reverse-action group in batch ---
   for (const [actionType, group] of rollbackMap) {
     const { reverse, emailIds } = group;
+
+    // Special handling for reassign_category: restore per-email original categories
+    if (actionType === 'reassign_category') {
+      let catRolledBack = 0;
+      let catFailed = 0;
+      for (const emailId of emailIds) {
+        const originalCategory = categoryRollbackMap.get(emailId);
+        if (!originalCategory) {
+          catFailed++;
+          continue;
+        }
+        try {
+          const { error: upsertErr } = await serviceClient
+            .from('email_categories')
+            .upsert(
+              { email_id: emailId, category: originalCategory, confidence: 1.0, categorized_at: new Date().toISOString() },
+              { onConflict: 'email_id' }
+            );
+          if (upsertErr) {
+            catFailed++;
+            console.error(`[rollback] Failed to restore category for ${emailId}:`, upsertErr);
+          } else {
+            catRolledBack++;
+          }
+        } catch {
+          catFailed++;
+        }
+      }
+      rolledBack += catRolledBack;
+      failed += catFailed;
+      if (catRolledBack > 0) {
+        details.push(`Restored original category for ${catRolledBack} email${catRolledBack !== 1 ? 's' : ''}`);
+      }
+      if (catFailed > 0) {
+        details.push(`Failed to restore category for ${catFailed} email${catFailed !== 1 ? 's' : ''}`);
+      }
+      continue;
+    }
 
     // Fetch email rows to get gmail_message_id and current label_ids
     const { data: emailRows, error: emailErr } = await serviceClient

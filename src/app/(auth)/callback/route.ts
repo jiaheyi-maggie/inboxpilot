@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { createServerClient } from '@supabase/ssr';
+import { createServiceClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 import { encrypt } from '@/lib/crypto';
 
 export async function GET(request: Request) {
@@ -13,7 +15,29 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/?error=no_code`);
   }
 
-  const supabase = await createServerSupabaseClient();
+  const cookieStore = await cookies();
+
+  // Track cookies set by exchangeCodeForSession so we can copy them to the redirect
+  const pendingCookies: { name: string; value: string; options: Record<string, unknown> }[] = [];
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            try { cookieStore.set(name, value, options); } catch { /* Server Component fallback */ }
+            pendingCookies.push({ name, value, options: options as Record<string, unknown> });
+          });
+        },
+      },
+    }
+  );
+
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !data.session) {
@@ -82,9 +106,25 @@ export async function GET(request: Request) {
       .single();
 
     if (!existingConfig) {
-      return NextResponse.redirect(`${origin}/setup`);
+      return redirectWithCookies(`${origin}/setup`, pendingCookies);
     }
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  return redirectWithCookies(`${origin}${next}`, pendingCookies);
+}
+
+/**
+ * Create a redirect response that explicitly carries auth cookies.
+ * NextResponse.redirect() creates a new response that may not inherit
+ * cookies set via cookieStore.set() — explicitly copy them to be safe.
+ */
+function redirectWithCookies(
+  url: string,
+  cookies: { name: string; value: string; options: Record<string, unknown> }[],
+): NextResponse {
+  const response = NextResponse.redirect(url);
+  for (const { name, value, options } of cookies) {
+    response.cookies.set(name, value, options);
+  }
+  return response;
 }

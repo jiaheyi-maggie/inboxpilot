@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CategoryBadge } from './category-badge';
 import type { Email } from '@/types';
 
 interface UnreadSectionProps {
@@ -293,7 +294,7 @@ function UnreadEmailCard({ email, disabled, onProcessed, onSelect }: UnreadEmail
             ) : (
               <MailOpen className="h-3 w-3 mr-1" />
             )}
-            Categorize
+            {email.is_categorized ? 'Mark Read' : 'Categorize'}
           </Button>
         </div>
       </div>

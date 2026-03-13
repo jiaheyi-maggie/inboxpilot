@@ -211,12 +211,18 @@ export async function backfillWorkflow(
 
   // --- 7. Bulk-insert workflow_runs for audit ---
   // Only record succeeded emails as 'completed'. Record failed emails as 'failed'.
+  // For reassign_category, store the original category so rollback can reverse it.
   const allEmailIds = new Set([...succeededEmailIds, ...failedEmailIds]);
   if (allEmailIds.size > 0) {
     const now = new Date().toISOString();
     const actionSummary = actions.map((a) => a.actionType).join(' + ');
     const runs = Array.from(allEmailIds).map((emailId) => {
       const status = failedEmailIds.has(emailId) && !succeededEmailIds.has(emailId) ? 'failed' : 'completed';
+      const email = filtered.find((e) => e.id === emailId);
+      const previousCategory = email?.category ?? null;
+      const detail = status === 'completed'
+        ? `Backfill: applied ${actionSummary}`
+        : `Backfill: failed to apply ${actionSummary}`;
       return {
         workflow_id: workflowId,
         email_id: emailId,
@@ -226,10 +232,9 @@ export async function backfillWorkflow(
           nodeId: 'backfill',
           nodeType: 'trigger' as const,
           result: (status === 'completed' ? 'executed' : 'error') as 'executed' | 'error',
-          detail: status === 'completed'
-            ? `Backfill: applied ${actionSummary}`
-            : `Backfill: failed to apply ${actionSummary}`,
+          detail,
           timestamp: now,
+          ...(previousCategory != null ? { previous_state: { category: previousCategory } } : {}),
         }],
         started_at: now,
         completed_at: now,

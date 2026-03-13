@@ -25,13 +25,12 @@ export async function GET() {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
   }
 
-  // Fetch unread, uncategorized inbox emails (exclude trashed/archived)
+  // Fetch all unread inbox emails (exclude trashed/archived)
   const { data: emails, error } = await serviceClient
     .from('emails')
-    .select('*')
+    .select('*, email_categories(category)')
     .eq('gmail_account_id', account.id)
     .eq('is_read', false)
-    .eq('is_categorized', false)
     .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })
     .limit(100);
