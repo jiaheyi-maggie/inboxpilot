@@ -37,11 +37,11 @@ export const DIMENSIONS: Record<DimensionKey, DimensionDef> = {
     sqlColumn: "to_char(e.received_at, 'IYYY-\"W\"IW')",
     description: 'ISO week (2026-W10)',
   },
-  priority: {
-    key: 'priority',
-    label: 'Priority',
-    sqlColumn: 'ec.priority',
-    description: 'AI-assigned priority (high, normal, low)',
+  importance: {
+    key: 'importance',
+    label: 'Importance',
+    sqlColumn: 'ec.importance_label',
+    description: 'AI-assigned importance (critical, high, medium, low, noise)',
   },
   has_attachment: {
     key: 'has_attachment',
@@ -210,7 +210,7 @@ export function buildLeafQuery(params: {
     SELECT
       e.id, e.gmail_message_id, e.subject, e.sender_email, e.sender_name,
       e.sender_domain, e.snippet, e.received_at, e.is_read, e.has_attachment,
-      ec.category, ec.topic, ec.priority, ec.confidence
+      ec.category, ec.topic, ec.priority, ec.importance_score, ec.importance_label, ec.confidence
     FROM emails e
     LEFT JOIN email_categories ec ON ec.email_id = e.id
     WHERE ${whereClauses.join(' AND ')}

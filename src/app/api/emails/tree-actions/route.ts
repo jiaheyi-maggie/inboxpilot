@@ -7,8 +7,15 @@ import type { GmailAccount, DimensionKey, TreeActionRequest } from '@/types';
 import { CATEGORIES } from '@/types';
 
 // --- Dimension sets for filter resolution (mirrors /api/emails logic) ---
-const CATEGORY_DIMENSIONS = new Set<DimensionKey>(['category', 'topic', 'priority']);
+const CATEGORY_DIMENSIONS = new Set<DimensionKey>(['category', 'topic', 'importance']);
 const DATE_DIMENSIONS = new Set<DimensionKey>(['date_month', 'date_week']);
+
+// Map dimension keys to their actual column names in email_categories.
+const CATEGORY_COLUMN_MAP: Partial<Record<DimensionKey, string>> = {
+  category: 'category',
+  topic: 'topic',
+  importance: 'importance_label',
+};
 
 /**
  * Generalized bulk actions on any set of tree-filtered emails.
@@ -95,7 +102,7 @@ export async function POST(request: NextRequest) {
     action === 'reassign';
 
   const selectFields = needsCategories
-    ? 'id, gmail_message_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at, email_categories(category, topic, priority)'
+    ? 'id, gmail_message_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at, email_categories(*)'
     : 'id, gmail_message_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at';
 
   let query = serviceClient
@@ -155,9 +162,10 @@ export async function POST(request: NextRequest) {
 
   for (const filter of filters) {
     if (CATEGORY_DIMENSIONS.has(filter.dimension)) {
+      const col = CATEGORY_COLUMN_MAP[filter.dimension] ?? filter.dimension;
       rows = rows.filter((row) => {
         const cat = getCategory(row.email_categories);
-        return cat != null && cat[filter.dimension] === filter.value;
+        return cat != null && cat[col] === filter.value;
       });
     } else if (DATE_DIMENSIONS.has(filter.dimension)) {
       rows = rows.filter((row) => {

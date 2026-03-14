@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createServiceClient } from '@/lib/supabase/server';
-import { CATEGORIES } from '@/types';
-import type { Email } from '@/types';
+import { CATEGORIES, importanceScoreToLabel } from '@/types';
+import type { Email, ImportanceLabel } from '@/types';
 
 const BATCH_SIZE = 25;
 
@@ -11,8 +11,25 @@ interface CategorizeResult {
   email_id: string;
   category: string;
   topic: string;
-  priority: string;
+  importance: number;
   confidence: number;
+}
+
+/**
+ * Map importance label back to legacy priority for backward compatibility.
+ * Will be removed once priority column is dropped.
+ */
+function importanceToPriority(label: ImportanceLabel): 'high' | 'normal' | 'low' {
+  switch (label) {
+    case 'critical':
+    case 'high':
+      return 'high';
+    case 'medium':
+      return 'normal';
+    case 'low':
+    case 'noise':
+      return 'low';
+  }
 }
 
 /**
@@ -60,7 +77,7 @@ async function getRecentCorrections(userId: string, limit = 20): Promise<
 function buildCategorizeTool(categoryNames: string[]): Anthropic.Messages.Tool {
   return {
     name: 'categorize_emails',
-    description: 'Categorize a batch of emails by category, topic, and priority.',
+    description: 'Categorize a batch of emails by category, topic, and importance.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -80,18 +97,19 @@ function buildCategorizeTool(categoryNames: string[]): Anthropic.Messages.Tool {
                 description:
                   'Specific topic like "Project Updates", "Receipts", "Flight Booking"',
               },
-              priority: {
-                type: 'string',
-                enum: ['high', 'normal', 'low'],
+              importance: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 5,
                 description:
-                  'Priority: high for urgent/action-required, low for noise/promotions',
+                  'Importance: 5=critical (urgent, needs immediate action), 4=high (important, should be seen today), 3=medium (regular email), 2=low (informational, can wait), 1=noise (promotional, automated, irrelevant)',
               },
               confidence: {
                 type: 'number',
                 description: 'Confidence score 0.0-1.0',
               },
             },
-            required: ['email_id', 'category', 'topic', 'priority', 'confidence'],
+            required: ['email_id', 'category', 'topic', 'importance', 'confidence'],
           },
         },
       },
@@ -181,7 +199,7 @@ export async function categorizeEmails(
             content: `Categorize each of the following emails. For each email, determine:
 1. Category: the best-fit category from the allowed list
 2. Topic: a specific 2-4 word topic description
-3. Priority: "high" for urgent/action-required, "normal" for regular, "low" for noise/promotions
+3. Importance (1-5): 5=critical (urgent, needs immediate action), 4=high (important, should be seen today), 3=medium (regular), 2=low (informational, can wait), 1=noise (promotional, automated, irrelevant)
 4. Confidence: how confident you are (0.0-1.0)
 
 Emails:
@@ -219,15 +237,20 @@ ${emailSummaries}`,
         return true;
       });
 
-      const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
-      const rows = filteredResults.map((r) => ({
-        email_id: r.email_id,
-        category: r.category,
-        topic: r.topic,
-        priority: VALID_PRIORITIES.has(r.priority) ? r.priority : 'normal',
-        confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0)),
-        categorized_at: new Date().toISOString(),
-      }));
+      const rows = filteredResults.map((r) => {
+        const score = Math.max(1, Math.min(5, Math.round(Number(r.importance) || 3)));
+        const label = importanceScoreToLabel(score);
+        return {
+          email_id: r.email_id,
+          category: r.category,
+          topic: r.topic,
+          importance_score: score,
+          importance_label: label,
+          priority: importanceToPriority(label), // backward compat
+          confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0)),
+          categorized_at: new Date().toISOString(),
+        };
+      });
 
       if (rows.length === 0) {
         errors += batch.length;

@@ -74,7 +74,7 @@ const WORKFLOW_TOOL: Anthropic.Messages.Tool = {
           properties: {
             field: {
               type: 'string',
-              enum: ['category', 'topic', 'priority', 'sender_email', 'sender_domain', 'subject', 'has_attachment', 'is_read', 'is_starred', 'label'],
+              enum: ['category', 'topic', 'importance', 'sender_email', 'sender_domain', 'subject', 'has_attachment', 'is_read', 'is_starred', 'label'],
             },
             operator: {
               type: 'string',

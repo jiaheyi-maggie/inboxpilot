@@ -345,8 +345,10 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         {/* Tags */}
         <div className="flex items-center gap-1.5 mt-3">
           {email.category && <CategoryBadge category={email.category} />}
-          {email.priority === 'high' && <Badge variant="high">High</Badge>}
-          {email.priority === 'low' && <Badge variant="low">Low</Badge>}
+          {email.importance_label === 'critical' && <Badge variant="critical">Critical</Badge>}
+          {email.importance_label === 'high' && <Badge variant="high">High</Badge>}
+          {email.importance_label === 'low' && <Badge variant="low">Low</Badge>}
+          {email.importance_label === 'noise' && <Badge variant="noise">Noise</Badge>}
           {email.topic && (
             <span className="text-xs text-muted-foreground">{email.topic}</span>
           )}

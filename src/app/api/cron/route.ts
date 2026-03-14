@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
 
       const { data: unreadEmails } = await serviceClient
         .from('emails')
-        .select('*, email_categories(category, topic, priority, confidence)')
+        .select('*, email_categories(*)')
         .eq('gmail_account_id', account.id)
         .eq('is_read', false)
         .lt('received_at', cutoff)
@@ -205,6 +205,8 @@ export async function POST(request: NextRequest) {
           topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
           priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
           confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+          importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+          importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
         };
         await runWorkflowsForEmail(emailWithCat, 'unread_timeout', account);
         totalProcessed++;

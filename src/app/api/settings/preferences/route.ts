@@ -58,34 +58,43 @@ export async function PUT(request: NextRequest) {
 
   const serviceClient = createServiceClient();
 
-  // Get current preferences to preserve unchanged fields
+  // Get current preferences to preserve unchanged fields.
+  // Use select('*') so we don't fail if view mode column hasn't been migrated yet.
   const { data: current } = await serviceClient
     .from('user_preferences')
-    .select('auto_categorize_unread, default_view_mode')
+    .select('*')
     .eq('user_id', user.id)
     .limit(1)
     .single();
 
   const newAutoCategorize = auto_categorize_unread ?? current?.auto_categorize_unread ?? false;
-  const newViewMode = default_view_mode ?? current?.default_view_mode ?? 'by_sender';
+
+  // Build upsert payload dynamically — only include default_view_mode
+  // if the caller sent it (avoids writing to a column that may not exist pre-migration)
+  const upsertPayload: Record<string, unknown> = {
+    user_id: user.id,
+    auto_categorize_unread: newAutoCategorize,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (default_view_mode !== undefined) {
+    upsertPayload.default_view_mode = default_view_mode;
+  } else if (current?.default_view_mode != null) {
+    // Preserve existing value when only auto_categorize_unread changes
+    upsertPayload.default_view_mode = current.default_view_mode;
+  }
 
   const { data, error } = await serviceClient
     .from('user_preferences')
-    .upsert(
-      {
-        user_id: user.id,
-        auto_categorize_unread: newAutoCategorize,
-        default_view_mode: newViewMode,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    )
+    .upsert(upsertPayload, { onConflict: 'user_id' })
     .select()
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const newViewMode = (upsertPayload.default_view_mode as ViewMode | undefined) ?? 'by_sender';
 
   // Sync view mode to grouping_configs (compatibility layer)
   if (default_view_mode !== undefined) {

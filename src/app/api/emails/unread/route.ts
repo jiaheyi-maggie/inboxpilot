@@ -28,7 +28,7 @@ export async function GET() {
   // Fetch all unread inbox emails (exclude trashed/archived)
   const { data: emails, error } = await serviceClient
     .from('emails')
-    .select('*, email_categories(category)')
+    .select('*, email_categories(*)')
     .eq('gmail_account_id', account.id)
     .eq('is_read', false)
     .contains('label_ids', ['INBOX'])

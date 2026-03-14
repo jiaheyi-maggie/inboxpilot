@@ -62,7 +62,7 @@ export async function backfillWorkflow(
   // --- 2. Query emails matching trigger criteria ---
   let query = serviceClient
     .from('emails')
-    .select('*, email_categories(category, topic, priority, confidence)')
+    .select('*, email_categories(*)')
     .eq('gmail_account_id', account.id)
     .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })
@@ -109,6 +109,8 @@ export async function backfillWorkflow(
       category: (catObj as Record<string, unknown>)?.category as string ?? null,
       topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
       priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+      importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+      importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
       confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
     } as unknown as EmailWithCategoryData;
   });
@@ -351,7 +353,8 @@ function getFieldValue(
   switch (field) {
     case 'category': return email.category;
     case 'topic': return email.topic;
-    case 'priority': return email.priority;
+    case 'importance': return email.importance_label;
+    case 'priority': return email.importance_label ?? email.priority;
     case 'sender_email': return email.sender_email;
     case 'sender_domain': return email.sender_domain;
     case 'subject': return email.subject;

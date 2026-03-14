@@ -183,7 +183,7 @@ function TriggerConfig({
 const CONDITION_FIELDS: { value: WorkflowConditionField; label: string }[] = [
   { value: 'category', label: 'Category' },
   { value: 'topic', label: 'Topic' },
-  { value: 'priority', label: 'Priority' },
+  { value: 'importance', label: 'Importance' },
   { value: 'sender_email', label: 'Sender Email' },
   { value: 'sender_domain', label: 'Sender Domain' },
   { value: 'subject', label: 'Subject' },
@@ -264,16 +264,18 @@ function ConditionConfig({
                 </option>
               ))}
             </select>
-          ) : data.field === 'priority' ? (
+          ) : data.field === 'importance' || data.field === 'priority' ? (
             <select
               value={data.value}
               onChange={(e) => onChange({ ...data, value: e.target.value })}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="">Select...</option>
+              <option value="critical">Critical</option>
               <option value="high">High</option>
-              <option value="normal">Normal</option>
+              <option value="medium">Medium</option>
               <option value="low">Low</option>
+              <option value="noise">Noise</option>
             </select>
           ) : (
             <input

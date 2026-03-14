@@ -24,7 +24,7 @@ interface PromptRuleCreatorProps {
 
 const EXAMPLES = [
   'Archive emails from linkedin.com',
-  'Star high-priority work emails',
+  'Star high-importance work emails',
   'Trash promotional emails from retail stores',
   'Move newsletters to Reading List',
 ];

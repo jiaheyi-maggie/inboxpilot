@@ -169,18 +169,45 @@ interface UnreadEmailCardProps {
   onSelect?: (email: Email) => void;
 }
 
+const EXIT_ANIMATION_MS = 300;
+
 function UnreadEmailCard({ email, disabled, onProcessed, onSelect }: UnreadEmailCardProps) {
   const [actioning, setActioning] = useState(false);
   const [exiting, setExiting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback(async () => {
     if (disabled || actioning) return;
-    // Open email in the right panel
+    // Open email in the right panel immediately
     onSelect?.(email);
-  }, [disabled, actioning, onSelect, email]);
-
-  const EXIT_ANIMATION_MS = 300;
+    // Auto-mark as read in the background
+    setActioning(true);
+    try {
+      const res = await fetch(`/api/emails/${email.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark_read' }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setExiting(true);
+      // Only toast if auto-categorization happened (plain "marked read" is noise)
+      if (data.category) {
+        toast.success(`Moved to ${data.category}`, {
+          description: email.subject || '(no subject)',
+        });
+      } else if (data.categorization_status === 'pending') {
+        toast.success('Categorizing...', {
+          description: email.subject || '(no subject)',
+        });
+      }
+      setTimeout(() => onProcessed(email.id), EXIT_ANIMATION_MS);
+    } catch {
+      // Silent fail — email is open in detail panel regardless
+    } finally {
+      setActioning(false);
+    }
+  }, [disabled, actioning, onSelect, email, onProcessed]);
 
   const markReadAndExit = useCallback(
     async (e: React.MouseEvent) => {

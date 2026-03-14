@@ -20,10 +20,14 @@ const badgeVariants = cva(
         link: "text-primary underline-offset-4 [a&]:hover:underline",
         category:
           "bg-secondary text-secondary-foreground border-border border",
-        high:
+        critical:
           "bg-destructive/10 text-destructive border-destructive/20 border",
+        high:
+          "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20 border",
         low:
           "bg-muted text-muted-foreground border-border border",
+        noise:
+          "bg-muted/50 text-muted-foreground/70 border-transparent",
       },
     },
     defaultVariants: {

@@ -23,7 +23,10 @@ import type {
 export interface EmailWithCategoryData extends Email {
   category?: string | null;
   topic?: string | null;
+  /** @deprecated Use importance_label instead */
   priority?: string | null;
+  importance_score?: number | null;
+  importance_label?: string | null;
   confidence?: number | null;
 }
 
@@ -292,8 +295,10 @@ function getFieldValue(
       return email.category;
     case 'topic':
       return email.topic;
+    case 'importance':
+      return email.importance_label;
     case 'priority':
-      return email.priority;
+      return email.importance_label ?? email.priority; // backward compat
     case 'sender_email':
       return email.sender_email;
     case 'sender_domain':

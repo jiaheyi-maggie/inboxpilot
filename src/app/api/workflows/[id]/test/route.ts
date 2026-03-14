@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   // Fetch email with categories join
   const { data: emailRow, error: emailErr } = await serviceClient
     .from('emails')
-    .select('*, email_categories(category, topic, priority, confidence)')
+    .select('*, email_categories(*)')
     .eq('id', emailId)
     .single();
 
@@ -71,6 +71,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     topic: cat?.topic as string ?? null,
     priority: cat?.priority as string ?? null,
     confidence: cat?.confidence as number ?? null,
+    importance_score: cat?.importance_score as number ?? null,
+    importance_label: cat?.importance_label as string ?? null,
   };
 
   // Use graph from request (current canvas state) if provided, else fall back to DB

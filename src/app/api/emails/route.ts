@@ -4,7 +4,15 @@ import { DIMENSIONS } from '@/lib/grouping/engine';
 import type { DimensionKey, GroupingLevel } from '@/types';
 
 // --- Category-table dimensions that live on the email_categories join ---
-const CATEGORY_DIMENSIONS = new Set<DimensionKey>(['category', 'topic', 'priority']);
+const CATEGORY_DIMENSIONS = new Set<DimensionKey>(['category', 'topic', 'importance']);
+
+// Map dimension keys to their actual column names in email_categories.
+// Most match 1:1 except importance → importance_label.
+const CATEGORY_COLUMN_MAP: Partial<Record<DimensionKey, string>> = {
+  category: 'category',
+  topic: 'topic',
+  importance: 'importance_label',
+};
 
 // --- Date dimensions that require formatting ---
 const DATE_DIMENSIONS = new Set<DimensionKey>(['date_month', 'date_week']);
@@ -111,7 +119,7 @@ async function handleGroupQuery(
 
   // Fetch only the columns needed for grouping + filtering (minimize data transfer)
   const selectFields = needsCategories
-    ? 'id, sender_email, sender_domain, is_read, has_attachment, received_at, email_categories(category, topic, priority)'
+    ? 'id, sender_email, sender_domain, is_read, has_attachment, received_at, email_categories(*)'
     : 'id, sender_email, sender_domain, is_read, has_attachment, received_at';
 
   let query = serviceClient
@@ -178,9 +186,10 @@ async function handleGroupQuery(
 
   for (const filter of parentFilters) {
     if (CATEGORY_DIMENSIONS.has(filter.dimension)) {
+      const col = CATEGORY_COLUMN_MAP[filter.dimension] ?? filter.dimension;
       filtered = filtered.filter((row) => {
         const cat = getCategory(row.email_categories);
-        return cat != null && cat[filter.dimension] === filter.value;
+        return cat != null && cat[col] === filter.value;
       });
     } else if (DATE_DIMENSIONS.has(filter.dimension)) {
       filtered = filtered.filter((row) => {
@@ -198,7 +207,8 @@ async function handleGroupQuery(
 
     if (CATEGORY_DIMENSIONS.has(targetDimension)) {
       const cat = getCategory(row.email_categories);
-      key = cat ? (cat[targetDimension] as string) ?? null : null;
+      const col = CATEGORY_COLUMN_MAP[targetDimension] ?? targetDimension;
+      key = cat ? (cat[col] as string) ?? null : null;
     } else if (DATE_DIMENSIONS.has(targetDimension)) {
       key = formatDateDimension(row.received_at as string, targetDimension);
     } else {
@@ -245,7 +255,7 @@ async function handleLeafQuery(
     .from('emails')
     .select(`
       *,
-      email_categories(category, topic, priority, confidence)
+      email_categories(*)
     `)
     .eq('gmail_account_id', gmailAccountId)
     .contains('label_ids', ['INBOX'])
@@ -288,9 +298,10 @@ async function handleLeafQuery(
   // Apply JS-side filters for category/date dimensions
   for (const filter of parentFilters) {
     if (CATEGORY_DIMENSIONS.has(filter.dimension)) {
+      const col = CATEGORY_COLUMN_MAP[filter.dimension] ?? filter.dimension;
       rows = rows.filter((row) => {
         const cat = getCategory(row.email_categories);
-        return cat != null && cat[filter.dimension] === filter.value;
+        return cat != null && cat[col] === filter.value;
       });
     } else if (DATE_DIMENSIONS.has(filter.dimension)) {
       rows = rows.filter((row) => {
@@ -308,6 +319,8 @@ async function handleLeafQuery(
       category: (cat?.category as string) ?? null,
       topic: (cat?.topic as string) ?? null,
       priority: (cat?.priority as string) ?? null,
+      importance_score: (cat?.importance_score as number) ?? null,
+      importance_label: (cat?.importance_label as string) ?? null,
       confidence: (cat?.confidence as number) ?? null,
       email_categories: undefined,
     };

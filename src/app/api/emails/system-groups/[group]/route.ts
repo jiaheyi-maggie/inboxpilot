@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   let query = serviceClient
     .from('emails')
-    .select('*, email_categories(category, topic, priority, confidence)')
+    .select('*, email_categories(*)')
     .eq('gmail_account_id', account.id)
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);

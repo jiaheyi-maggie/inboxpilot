@@ -109,7 +109,7 @@ export async function POST() {
           // Batch query by gmail_message_id to get internal IDs
           const { data: newEmails } = await bgServiceClient
             .from('emails')
-            .select('*, email_categories(category, topic, priority, confidence)')
+            .select('*, email_categories(*)')
             .eq('gmail_account_id', gmailAccount.id)
             .in('gmail_message_id', insertedGmailMsgIds);
 
@@ -125,6 +125,8 @@ export async function POST() {
                 topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
                 priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
                 confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+                importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+                importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
               };
               await runWorkflowsForEmail(emailWithCat, 'new_email', accountForWorkflows);
               if (emailWithCat.sender_domain) {
@@ -155,7 +157,7 @@ export async function POST() {
           try {
             const { data: categorizedEmails } = await bgServiceClient
               .from('emails')
-              .select('*, email_categories(category, topic, priority, confidence)')
+              .select('*, email_categories(*)')
               .in('id', uncategorized.map((e) => e.id))
               .eq('is_categorized', true);
 
@@ -171,6 +173,8 @@ export async function POST() {
                   topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
                   priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
                   confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+                  importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+                  importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
                 };
                 await runWorkflowsForEmail(emailWithCat, 'email_categorized', accountForWorkflows);
               }

@@ -191,6 +191,8 @@ export function EmailTree({ config, refreshKey, defaultViewMode = 'by_sender', v
       category: null,
       topic: null,
       priority: null,
+      importance_score: null,
+      importance_label: null,
       confidence: null,
     };
     setUnreadSelectedEmail(emailWithCat);
@@ -236,6 +238,8 @@ export function EmailTree({ config, refreshKey, defaultViewMode = 'by_sender', v
           category: (catObj as Record<string, unknown>)?.category as string ?? null,
           topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
           priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+          importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+          importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
           confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
         } as unknown as EmailWithCategory;
       });

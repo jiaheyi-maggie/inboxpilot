@@ -24,19 +24,20 @@ export default async function DashboardPage() {
 
   if (!config) redirect('/setup');
 
-  // Remaining queries are independent — run in parallel
+  // Remaining queries are independent — run in parallel.
+  // Use select('*') for prefs/categories to avoid failing if view mode columns
+  // haven't been migrated yet (00010_view_modes.sql).
   const [{ data: prefs }, { data: categories }, { data: account }] = await Promise.all([
     serviceClient
       .from('user_preferences')
-      .select('default_view_mode')
+      .select('*')
       .eq('user_id', user.id)
       .limit(1)
       .single(),
     serviceClient
       .from('user_categories')
-      .select('name, view_mode_override')
-      .eq('user_id', user.id)
-      .not('view_mode_override', 'is', null),
+      .select('*')
+      .eq('user_id', user.id),
     serviceClient
       .from('gmail_accounts')
       .select('id, email, last_sync_at, sync_enabled, granted_scope')

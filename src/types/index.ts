@@ -34,12 +34,39 @@ export interface Email {
   created_at: string;
 }
 
+// --- Importance (replaces priority) ---
+
+export type ImportanceLabel = 'critical' | 'high' | 'medium' | 'low' | 'noise';
+export type ImportanceScore = 1 | 2 | 3 | 4 | 5;
+
+export const IMPORTANCE_LEVELS = [
+  { score: 5 as ImportanceScore, label: 'critical' as ImportanceLabel, display: 'Critical' },
+  { score: 4 as ImportanceScore, label: 'high' as ImportanceLabel, display: 'High' },
+  { score: 3 as ImportanceScore, label: 'medium' as ImportanceLabel, display: 'Medium' },
+  { score: 2 as ImportanceScore, label: 'low' as ImportanceLabel, display: 'Low' },
+  { score: 1 as ImportanceScore, label: 'noise' as ImportanceLabel, display: 'Noise' },
+] as const;
+
+export function importanceScoreToLabel(score: number): ImportanceLabel {
+  switch (score) {
+    case 5: return 'critical';
+    case 4: return 'high';
+    case 3: return 'medium';
+    case 2: return 'low';
+    case 1: return 'noise';
+    default: return 'medium';
+  }
+}
+
 export interface EmailCategory {
   id: string;
   email_id: string;
   category: string;
   topic: string | null;
+  /** @deprecated Use importance_score/importance_label instead */
   priority: 'high' | 'normal' | 'low';
+  importance_score: ImportanceScore | null;
+  importance_label: ImportanceLabel | null;
   confidence: number;
   categorized_at: string;
 }
@@ -67,7 +94,7 @@ export type DimensionKey =
   | 'sender_domain'
   | 'date_month'
   | 'date_week'
-  | 'priority'
+  | 'importance'
   | 'has_attachment'
   | 'is_read';
 
@@ -97,7 +124,10 @@ export interface TreeNode {
 export interface EmailWithCategory extends Email {
   category: string | null;
   topic: string | null;
+  /** @deprecated Use importance_score/importance_label instead */
   priority: string | null;
+  importance_score: number | null;
+  importance_label: string | null;
   confidence: number | null;
 }
 
@@ -198,7 +228,8 @@ export type WorkflowActionType =
 export type WorkflowConditionField =
   | 'category'
   | 'topic'
-  | 'priority'
+  | 'importance'
+  | 'priority'    // deprecated — kept for backward compat with existing workflows
   | 'sender_email'
   | 'sender_domain'
   | 'subject'

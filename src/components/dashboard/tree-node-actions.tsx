@@ -113,7 +113,7 @@ export function TreeNodeActions({
 
   // Determine which dimension the last filter targets — used to conditionally show reassign
   const lastDimension = path[path.length - 1]?.dimension;
-  const showReassign = lastDimension === 'category' || lastDimension === 'topic' || lastDimension === 'priority';
+  const showReassign = lastDimension === 'category' || lastDimension === 'topic' || lastDimension === 'importance';
   const excludeCategory = lastDimension === 'category' ? path[path.length - 1]?.value : undefined;
 
   if (loading) {
