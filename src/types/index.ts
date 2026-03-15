@@ -358,3 +358,11 @@ export interface WorkflowRun {
   started_at: string;
   completed_at: string | null;
 }
+
+// --- AI Intent Router ---
+
+export interface IntentResponse {
+  type: 'context' | 'command' | 'rule' | 'search';
+  summary: string;
+  details: Record<string, unknown>;
+}
