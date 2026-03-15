@@ -1,42 +1,44 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Settings } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { EmailTree } from '@/components/dashboard/email-tree';
-import type { GroupingConfig, GmailAccount, ViewMode } from '@/types';
+import { ViewProvider, useView } from '@/contexts/view-context';
+import { Sidebar } from '@/components/dashboard/sidebar';
+import { ViewTabs } from '@/components/dashboard/view-tabs';
+import { ViewToolbar } from '@/components/dashboard/view-toolbar';
+import { ActiveViewRouter } from '@/components/dashboard/active-view-router';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
+import type { Layout } from 'react-resizable-panels';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
+import type { ViewConfig, GmailAccount, TreeNode } from '@/types';
 
 interface DashboardClientProps {
-  config: GroupingConfig | null;
+  viewConfig: ViewConfig;
   account: Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope'> | null;
-  defaultViewMode: ViewMode;
-  viewModeOverrides: Record<string, ViewMode>;
 }
 
-export function DashboardClient({
-  config,
-  account,
-  defaultViewMode,
-  viewModeOverrides,
-}: DashboardClientProps) {
+export function DashboardClient({ viewConfig, account }: DashboardClientProps) {
   const router = useRouter();
   const autoSyncTriggered = useRef(false);
-
-  // Key to force re-fetch of EmailTree when sync completes
-  const [treeRefreshKey, setTreeRefreshKey] = useState(0);
+  const [externalRefreshKey, setExternalRefreshKey] = useState(0);
 
   // Listen for sync-complete events from AppShell's SyncStatus
   useEffect(() => {
-    const handler = () => setTreeRefreshKey((k) => k + 1);
+    const handler = () => setExternalRefreshKey((k) => k + 1);
     window.addEventListener('inboxpilot:sync-complete', handler);
     return () => window.removeEventListener('inboxpilot:sync-complete', handler);
   }, []);
 
-  // Auto-sync on mount if last sync was >5 min ago (or never synced)
+  // Auto-sync on mount if last sync was >5 min ago
   useEffect(() => {
     if (autoSyncTriggered.current || !account?.sync_enabled) return;
-    const STALE_MS = 5 * 60 * 1000; // 5 minutes
+    const STALE_MS = 5 * 60 * 1000;
     const lastSyncTime = account?.last_sync_at
       ? new Date(account.last_sync_at).getTime()
       : 0;
@@ -44,38 +46,184 @@ export function DashboardClient({
       autoSyncTriggered.current = true;
       fetch('/api/sync', { method: 'POST' })
         .then(() => {
-          setTreeRefreshKey((k) => k + 1);
+          setExternalRefreshKey((k) => k + 1);
           router.refresh();
         })
-        .catch(() => {}); // silent — user can manually retry
+        .catch(() => {});
     }
   }, [account, router]);
 
   return (
-    <div className="h-full">
-      {config ? (
-        <EmailTree
-          config={config}
-          refreshKey={treeRefreshKey}
-          defaultViewMode={defaultViewMode}
-          viewModeOverrides={viewModeOverrides}
-        />
-      ) : (
-        <div className="flex items-center justify-center h-full text-muted-foreground text-sm px-4 text-center">
-          <div>
-            <p>No grouping configuration set up.</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              onClick={() => router.push('/settings')}
-            >
-              <Settings className="h-4 w-4" />
-              Configure Grouping
-            </Button>
-          </div>
-        </div>
-      )}
+    <ViewProvider key={viewConfig.id} initialView={viewConfig} externalRefreshKey={externalRefreshKey}>
+      <DashboardLayout />
+    </ViewProvider>
+  );
+}
+
+// ── Inner layout component that can use useView() ──
+
+function DashboardLayout() {
+  const { refreshKey, triggerRefresh, viewConfig } = useView();
+
+  // Root nodes for sidebar category list
+  const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
+  const [sidebarLoading, setSidebarLoading] = useState(true);
+  const [sidebarError, setSidebarError] = useState(false);
+
+  // Realtime
+  const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadDoneRef = useRef(false);
+
+  const fetchRootNodes = useCallback(async (showSkeleton = true) => {
+    if (showSkeleton) setSidebarLoading(true);
+    setSidebarError(false);
+    try {
+      const params = new URLSearchParams({
+        level: '0',
+        configId: viewConfig.id,
+      });
+      const res = await fetch(`/api/emails?${params}`);
+      if (!res.ok) {
+        setSidebarError(true);
+        return;
+      }
+      const data = await res.json();
+      if (data.type === 'groups') {
+        setRootNodes(data.data);
+      }
+    } catch {
+      setSidebarError(true);
+    } finally {
+      if (showSkeleton) setSidebarLoading(false);
+    }
+  }, [viewConfig.id]);
+
+  // Initial load
+  useEffect(() => {
+    fetchRootNodes(true).then(() => {
+      setTimeout(() => { initialLoadDoneRef.current = true; }, 3000);
+    });
+  }, [fetchRootNodes, refreshKey]);
+
+  // Debounced refresh for realtime events
+  const debouncedRefresh = useCallback((showToast?: { title: string; description: string }) => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      if (showToast) {
+        toast.info(showToast.title, { description: showToast.description });
+      }
+      triggerRefresh();
+      fetchRootNodes(false);
+    }, 500);
+  }, [fetchRootNodes, triggerRefresh]);
+
+  // Supabase Realtime subscription
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('emails-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'emails' },
+        (payload) => {
+          const subject = (payload.new as Record<string, unknown>)?.subject as string;
+          if (initialLoadDoneRef.current) {
+            debouncedRefresh({ title: 'New email received', description: subject ?? 'New email' });
+          } else {
+            debouncedRefresh();
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'emails' },
+        () => { debouncedRefresh(); },
+      )
+      .subscribe();
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [debouncedRefresh]);
+
+  // Persist sidebar layout to localStorage
+  const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
+  const [savedLayout] = useState<Layout | undefined>(() => {
+    if (typeof window === 'undefined') return undefined;
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Layout;
+        const values = Object.values(parsed);
+        if (values.length >= 2 && values.every((v) => typeof v === 'number' && v >= 5 && v <= 95)) {
+          return parsed;
+        }
+        localStorage.removeItem(LAYOUT_KEY);
+      }
+    } catch { /* ignore corrupt data */ }
+    return undefined;
+  });
+
+  const handleLayoutChanged = useCallback((layout: Layout) => {
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+    } catch { /* storage full */ }
+  }, []);
+
+  const sidebarContent = (
+    <Sidebar
+      rootNodes={rootNodes}
+      loading={sidebarLoading}
+      fetchError={sidebarError}
+      onRetry={() => fetchRootNodes(true)}
+    />
+  );
+
+  const mainContent = (
+    <div className="flex flex-col h-full">
+      {/* View tabs + toolbar header */}
+      <div className="flex-shrink-0 border-b border-border px-4 py-2 space-y-2">
+        <ViewTabs />
+        <ViewToolbar />
+      </div>
+      {/* Active view content */}
+      <ScrollArea className="flex-1">
+        <ActiveViewRouter />
+      </ScrollArea>
     </div>
+  );
+
+  return (
+    <>
+      {/* Mobile: stacked layout */}
+      <div className="flex flex-col h-full lg:hidden">
+        <div className="border-b border-border">
+          <ScrollArea className="max-h-[40vh]">{sidebarContent}</ScrollArea>
+        </div>
+        <div className="flex-1 overflow-hidden">{mainContent}</div>
+      </div>
+
+      {/* Desktop: resizable panels */}
+      <div className="hidden lg:flex h-full">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          id="inboxpilot-sidebar"
+          onLayoutChanged={handleLayoutChanged}
+          {...(savedLayout ? { defaultLayout: savedLayout } : {})}
+        >
+          <ResizablePanel id="sidebar" defaultSize="25%" minSize="15%" maxSize="40%">
+            <ScrollArea className="h-full">{sidebarContent}</ScrollArea>
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="main" defaultSize="75%" minSize="40%" maxSize="85%">
+            {mainContent}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </>
   );
 }

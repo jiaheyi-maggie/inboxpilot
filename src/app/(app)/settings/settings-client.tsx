@@ -2,17 +2,13 @@
 
 import { useCallback, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { ViewModePickerWithSave } from '@/components/settings/view-mode-picker';
 import { CategoryManager } from '@/components/settings/category-manager';
-import type { ViewMode } from '@/types';
 
 interface SettingsClientProps {
-  initialViewMode: ViewMode;
   initialAutoCategorizeUnread: boolean;
 }
 
 export function SettingsClient({
-  initialViewMode,
   initialAutoCategorizeUnread,
 }: SettingsClientProps) {
   const [autoCategorize, setAutoCategorize] = useState(initialAutoCategorizeUnread);
@@ -29,7 +25,7 @@ export function SettingsClient({
         body: JSON.stringify({ auto_categorize_unread: newValue }),
       });
     } catch {
-      setAutoCategorize(!newValue); // revert on error
+      setAutoCategorize(!newValue);
     } finally {
       setSavingPrefs(false);
     }
@@ -44,15 +40,18 @@ export function SettingsClient({
         </p>
       </div>
 
-      {/* View mode picker (replaces old GroupingBuilder) */}
-      <ViewModePickerWithSave initialValue={initialViewMode} />
+      {/* View configuration note */}
+      <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <p className="text-sm text-muted-foreground">
+          View modes (List, Board, Tree) and grouping are now configured directly in the dashboard toolbar using the Filter, Sort, and Group controls.
+        </p>
+      </div>
 
       {/* Categories section */}
       <div>
         <h2 className="text-sm font-semibold mb-1">Categories</h2>
         <p className="text-xs text-muted-foreground mb-3">
           Customize how your emails are categorized. Add descriptions to help the AI understand each category.
-          You can set a per-category view mode override on each category.
         </p>
         <CategoryManager />
       </div>

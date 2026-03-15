@@ -131,10 +131,44 @@ export interface EmailWithCategory extends Email {
   confidence: number | null;
 }
 
-// --- View Modes ---
+// --- View System ---
 
+export type ViewType = 'list' | 'board' | 'tree';
+
+export interface ViewFilter {
+  field: string;
+  operator: 'eq' | 'neq' | 'contains' | 'gt' | 'lt' | 'in';
+  value: string | string[];
+}
+
+export interface ViewSort {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+export interface ViewConfig {
+  id: string;
+  user_id: string;
+  name: string;
+  view_type: ViewType;
+  group_by: GroupingLevel[];
+  filters: ViewFilter[];
+  sort: ViewSort[];
+  date_range_start: string | null;
+  date_range_end: string | null;
+  is_active: boolean;
+  sort_order: number;
+  is_pinned: boolean;
+  icon: string | null;
+  color: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** @deprecated Use ViewType + ViewConfig instead. Will be removed after migration. */
 export type ViewMode = 'flat' | 'by_sender' | 'by_date' | 'by_topic';
 
+/** @deprecated Use ViewConfig instead. Will be removed after migration. */
 export const VIEW_MODES: { value: ViewMode; label: string; description: string }[] = [
   { value: 'flat', label: 'Flat', description: 'All emails in each category' },
   { value: 'by_sender', label: 'By Sender', description: 'Group by sender within each category' },

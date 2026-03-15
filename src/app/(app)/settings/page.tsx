@@ -1,7 +1,6 @@
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { SettingsClient } from './settings-client';
-import type { ViewMode } from '@/types';
 
 export default async function SettingsPage() {
   const supabase = await createServerSupabaseClient();
@@ -13,7 +12,6 @@ export default async function SettingsPage() {
 
   const serviceClient = createServiceClient();
 
-  // Get user preferences (includes default_view_mode)
   const { data: prefs } = await serviceClient
     .from('user_preferences')
     .select('*')
@@ -23,7 +21,6 @@ export default async function SettingsPage() {
 
   return (
     <SettingsClient
-      initialViewMode={(prefs?.default_view_mode as ViewMode) ?? 'by_sender'}
       initialAutoCategorizeUnread={prefs?.auto_categorize_unread ?? false}
     />
   );

@@ -12,6 +12,10 @@ import {
   Trash2,
   ArrowRight,
   Loader2,
+  ChevronsUp,
+  ChevronUp,
+  ChevronDown,
+  ChevronsDown,
   Zap,
   RotateCcw,
   CheckSquare,
@@ -475,16 +479,16 @@ function EmailRow({
                     <CategoryBadge category={email.category} />
                   )}
                   {email.importance_label === 'critical' && (
-                    <Badge variant="critical">Critical</Badge>
+                    <Badge variant="critical" title="AI-assigned importance"><ChevronsUp className="h-3 w-3" /> Critical</Badge>
                   )}
                   {email.importance_label === 'high' && (
-                    <Badge variant="high">High</Badge>
+                    <Badge variant="high" title="AI-assigned importance"><ChevronUp className="h-3 w-3" /> High</Badge>
                   )}
                   {email.importance_label === 'low' && (
-                    <Badge variant="low">Low</Badge>
+                    <Badge variant="low" title="AI-assigned importance"><ChevronDown className="h-3 w-3" /> Low</Badge>
                   )}
                   {email.importance_label === 'noise' && (
-                    <Badge variant="noise">Noise</Badge>
+                    <Badge variant="noise" title="AI-assigned importance"><ChevronsDown className="h-3 w-3" /> Noise</Badge>
                   )}
                   {email.topic && (
                     <span className="text-xs text-muted-foreground">{email.topic}</span>
