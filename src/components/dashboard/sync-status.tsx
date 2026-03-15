@@ -28,8 +28,14 @@ export function SyncStatus({ onSyncComplete }: SyncStatusProps) {
         if (data.fetched > 0) parts.push(`${data.fetched} new`);
         if (data.categorized > 0) parts.push(`${data.categorized} categorized`);
         if (parts.length === 0) {
-          // No new activity — show total context
-          parts.push(`${data.totalEmails ?? 0} emails, ${data.totalCategorized ?? 0} categorized`);
+          // No new activity — clarify these are cumulative totals
+          const total = data.totalEmails ?? 0;
+          const categorized = data.totalCategorized ?? 0;
+          if (total === categorized) {
+            parts.push(`Up to date — ${total} emails`);
+          } else {
+            parts.push(`Up to date — ${categorized}/${total} categorized`);
+          }
         }
         setResult({
           success: true,

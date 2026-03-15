@@ -130,9 +130,9 @@ export function TreeNodeActions({
         <DropdownMenuTrigger asChild>
           <button
             onClick={(e) => e.stopPropagation()}
-            className="p-1 rounded hover:bg-accent transition-colors"
+            className="p-1 rounded hover:bg-accent/80 transition-colors"
           >
-            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+            <MoreHorizontal className="h-4 w-4 text-foreground/60 hover:text-foreground" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">

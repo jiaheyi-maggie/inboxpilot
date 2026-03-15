@@ -14,6 +14,10 @@ import {
   Star,
   Trash2,
   ArrowRight,
+  ChevronsUp,
+  ChevronUp,
+  ChevronDown,
+  ChevronsDown,
   Zap,
   RotateCcw,
 } from 'lucide-react';
@@ -345,10 +349,10 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         {/* Tags */}
         <div className="flex items-center gap-1.5 mt-3">
           {email.category && <CategoryBadge category={email.category} />}
-          {email.importance_label === 'critical' && <Badge variant="critical">Critical</Badge>}
-          {email.importance_label === 'high' && <Badge variant="high">High</Badge>}
-          {email.importance_label === 'low' && <Badge variant="low">Low</Badge>}
-          {email.importance_label === 'noise' && <Badge variant="noise">Noise</Badge>}
+          {email.importance_label === 'critical' && <Badge variant="critical" title="AI-assigned importance"><ChevronsUp className="h-3 w-3" /> Critical</Badge>}
+          {email.importance_label === 'high' && <Badge variant="high" title="AI-assigned importance"><ChevronUp className="h-3 w-3" /> High</Badge>}
+          {email.importance_label === 'low' && <Badge variant="low" title="AI-assigned importance"><ChevronDown className="h-3 w-3" /> Low</Badge>}
+          {email.importance_label === 'noise' && <Badge variant="noise" title="AI-assigned importance"><ChevronsDown className="h-3 w-3" /> Noise</Badge>}
           {email.topic && (
             <span className="text-xs text-muted-foreground">{email.topic}</span>
           )}

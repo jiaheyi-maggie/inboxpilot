@@ -105,33 +105,37 @@ export function TreeNode({
 
   return (
     <div>
-      <button
-        onClick={toggle}
-        className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-all duration-150 overflow-hidden min-w-0
+      <div
+        className={`group relative w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-all duration-150 min-w-0
           ${isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'}
           ${!isLeaf && expanded ? 'bg-accent/30' : ''}
           ${loading ? 'opacity-70' : ''}
         `}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
       >
-        {loading ? (
-          <Loader2 className="h-4 w-4 flex-shrink-0 text-muted-foreground animate-spin" />
-        ) : isLeaf ? (
-          <Mail className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-        ) : expanded ? (
-          <>
-            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
-            <FolderOpen className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          </>
-        ) : (
-          <>
-            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
-            <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          </>
-        )}
-        <span className="flex-1 truncate font-medium">{displayLabel}</span>
-        <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs tabular-nums flex-shrink-0">{count}</span>
-        <span onClick={(e) => e.stopPropagation()} className="flex-shrink-0">
+        <button
+          onClick={toggle}
+          className="flex-1 flex items-center gap-2 min-w-0 text-left"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 flex-shrink-0 text-muted-foreground animate-spin" />
+          ) : isLeaf ? (
+            <Mail className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          ) : expanded ? (
+            <>
+              <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
+              <FolderOpen className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            </>
+          ) : (
+            <>
+              <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200" />
+              <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            </>
+          )}
+          <span className="flex-1 truncate font-medium">{displayLabel}</span>
+          <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs tabular-nums flex-shrink-0">{count}</span>
+        </button>
+        <span className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
           <TreeNodeActions
             path={currentPath}
             configId={configId}
@@ -139,7 +143,7 @@ export function TreeNode({
             onActionComplete={onTreeChanged}
           />
         </span>
-      </button>
+      </div>
 
       {/* Animated children container */}
       <div
