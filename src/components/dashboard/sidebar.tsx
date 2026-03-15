@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Folder, Loader2, AlertCircle } from 'lucide-react';
+import { Folder, AlertCircle } from 'lucide-react';
 import { UnreadSection } from './unread-section';
 import { SystemGroups } from './system-groups';
+import { CategoryTeachInput } from './category-teach-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useView } from '@/contexts/view-context';
-import type { Email, EmailWithCategory, TreeNode } from '@/types';
+import type { Email, EmailWithCategory, TreeNode, UserCategory } from '@/types';
 
 function TreeSkeleton() {
   return (
@@ -18,6 +19,63 @@ function TreeSkeleton() {
           <Skeleton className="h-3 w-6" />
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Category row with inline teach input ──
+
+interface CategoryRowProps {
+  node: TreeNode;
+  meta?: { id: string; description: string | null };
+  isSelected: boolean;
+  onSelect: () => void;
+  onDescriptionSaved: (desc: string) => void;
+}
+
+function CategoryRow({ node, meta, isSelected, onSelect, onDescriptionSaved }: CategoryRowProps) {
+  const [teachExpanded, setTeachExpanded] = useState(false);
+
+  return (
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
+        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer group
+          ${isSelected
+            ? 'bg-primary/10 text-primary font-medium'
+            : 'text-foreground hover:bg-accent'
+          }
+        `}
+      >
+        <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <span className="truncate flex-1 text-left">{node.group_key}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{node.count}</span>
+        {meta && !teachExpanded && (
+          <CategoryTeachInput
+            categoryId={meta.id}
+            currentDescription={meta.description}
+            onSaved={onDescriptionSaved}
+            onExpandChange={setTeachExpanded}
+          />
+        )}
+      </div>
+      {meta && teachExpanded && (
+        <div className="px-2 pb-1">
+          <CategoryTeachInput
+            categoryId={meta.id}
+            currentDescription={meta.description}
+            onSaved={(desc) => {
+              onDescriptionSaved(desc);
+              setTeachExpanded(false);
+            }}
+            onExpandChange={setTeachExpanded}
+            startExpanded
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -40,6 +98,26 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProp
     refreshKey,
     triggerRefresh,
   } = useView();
+
+  // Category metadata for teach inputs (id + description)
+  const [categoryMeta, setCategoryMeta] = useState<Map<string, { id: string; description: string | null }>>(new Map());
+
+  // Fetch category metadata once and when rootNodes change
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/categories')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.categories) return;
+        const map = new Map<string, { id: string; description: string | null }>();
+        for (const cat of data.categories as UserCategory[]) {
+          map.set(cat.name, { id: cat.id, description: cat.description });
+        }
+        setCategoryMeta(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rootNodes]);
 
   // Unread section: selecting an unread email shows it in the main panel
   const handleUnreadEmailSelected = useCallback(
@@ -119,24 +197,28 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProp
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 pb-1">
               Categories
             </p>
-            {rootNodes.map((node) => (
-              <button
-                key={node.group_key}
-                onClick={() => setSelectedCategory(
-                  selectedCategory === node.group_key ? null : node.group_key
-                )}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors
-                  ${selectedCategory === node.group_key
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-foreground hover:bg-accent'
-                  }
-                `}
-              >
-                <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                <span className="truncate flex-1 text-left">{node.group_key}</span>
-                <span className="text-xs tabular-nums text-muted-foreground">{node.count}</span>
-              </button>
-            ))}
+            {rootNodes.map((node) => {
+              const meta = categoryMeta.get(node.group_key);
+              return (
+                <CategoryRow
+                  key={node.group_key}
+                  node={node}
+                  meta={meta}
+                  isSelected={selectedCategory === node.group_key}
+                  onSelect={() => setSelectedCategory(
+                    selectedCategory === node.group_key ? null : node.group_key
+                  )}
+                  onDescriptionSaved={(desc) => {
+                    if (!meta) return;
+                    setCategoryMeta((prev) => {
+                      const next = new Map(prev);
+                      next.set(node.group_key, { ...meta, description: desc });
+                      return next;
+                    });
+                  }}
+                />
+              );
+            })}
           </div>
         )}
       </div>

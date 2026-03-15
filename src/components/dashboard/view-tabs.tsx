@@ -6,7 +6,7 @@ import type { ViewType } from '@/types';
 
 const VIEW_TAB_CONFIG: { type: ViewType; label: string; icon: typeof List; disabled?: boolean; tooltip?: string }[] = [
   { type: 'list', label: 'List', icon: List },
-  { type: 'board', label: 'Board', icon: Columns3, disabled: true, tooltip: 'Coming soon' },
+  { type: 'board', label: 'Board', icon: Columns3 },
   { type: 'tree', label: 'Tree', icon: FolderTree },
 ];
 

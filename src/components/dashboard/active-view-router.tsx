@@ -6,7 +6,8 @@ import { useView } from '@/contexts/view-context';
 import { EmailList } from './email-list';
 import { EmailDetail } from './email-detail';
 import { TreeView } from './tree-view';
-import type { EmailWithCategory, TreeNode, SystemGroupKey } from '@/types';
+import { BoardView } from './board-view';
+import type { EmailWithCategory, TreeNode, SystemGroupKey, DimensionKey } from '@/types';
 
 export function ActiveViewRouter() {
   const {
@@ -100,7 +101,7 @@ export function ActiveViewRouter() {
     try {
       const params = new URLSearchParams();
 
-      // For tree view with group_by, fetch group nodes
+      // For tree view with group_by, fetch group nodes (board view always fetches leaf emails)
       if (viewType === 'tree' && groupBy.length > 0) {
         params.set('level', '0');
         params.set('configId', viewConfig.id);
@@ -229,6 +230,45 @@ export function ActiveViewRouter() {
   const systemGroupLabel = selectedSystemGroup
     ? { starred: 'Starred', archived: 'Archived', trash: 'Trash' }[selectedSystemGroup]
     : null;
+
+  // Board view — kanban columns grouped by the first groupBy dimension (default: category)
+  if (viewType === 'board') {
+    const boardDimension: DimensionKey =
+      groupBy.length > 0 ? groupBy[0].dimension : 'category';
+
+    const handleBoardSelectEmail = (emailId: string) => {
+      const email = emails.find((e) => e.id === emailId) ?? null;
+      if (email) {
+        setSelectedEmail(email);
+        setSelectedEmailId(emailId);
+      }
+    };
+
+    return (
+      <div className="h-full">
+        {emails.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="text-sm">No emails to display on the board</p>
+            {filters.length > 0 && (
+              <button
+                onClick={clearFilters}
+                className="text-sm text-primary mt-2 hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <BoardView
+            emails={emails}
+            groupByDimension={boardDimension}
+            onSelectEmail={handleBoardSelectEmail}
+            onEmailMoved={handleEmailMoved}
+          />
+        )}
+      </div>
+    );
+  }
 
   // Tree view — render when tree type is selected and groupBy is configured
   if (viewType === 'tree' && groupBy.length > 0) {

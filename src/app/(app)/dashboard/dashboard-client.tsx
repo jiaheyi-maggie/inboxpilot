@@ -2,12 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MessageSquare } from 'lucide-react';
 import { ViewProvider, useView } from '@/contexts/view-context';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { ViewTabs } from '@/components/dashboard/view-tabs';
 import { ViewToolbar } from '@/components/dashboard/view-toolbar';
 import { ActiveViewRouter } from '@/components/dashboard/active-view-router';
+import { CommandPalette } from '@/components/command-palette';
+import { ChatSidebar } from '@/components/chat-sidebar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -63,7 +72,22 @@ export function DashboardClient({ viewConfig, account }: DashboardClientProps) {
 // ── Inner layout component that can use useView() ──
 
 function DashboardLayout() {
-  const { refreshKey, triggerRefresh, viewConfig } = useView();
+  const { refreshKey, triggerRefresh, viewConfig, selectedCategory } = useView();
+
+  // Chat sidebar state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState<string | undefined>(undefined);
+
+  const handleOpenChat = useCallback((prefill?: string) => {
+    setChatPrefill(prefill);
+    setChatOpen(true);
+  }, []);
+
+  const handleCloseChat = useCallback(() => {
+    setChatOpen(false);
+    // Don't clear prefill immediately — ChatSidebar needs it during close animation
+    setTimeout(() => setChatPrefill(undefined), 400);
+  }, []);
 
   // Root nodes for sidebar category list
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
@@ -187,7 +211,22 @@ function DashboardLayout() {
     <div className="flex flex-col h-full">
       {/* View tabs + toolbar header */}
       <div className="flex-shrink-0 border-b border-border px-4 py-2 space-y-2">
-        <ViewTabs />
+        <div className="flex items-center justify-between">
+          <ViewTabs />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => handleOpenChat()}
+                className="flex-shrink-0"
+              >
+                <MessageSquare className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Chat with InboxPilot</TooltipContent>
+          </Tooltip>
+        </div>
         <ViewToolbar />
       </div>
       {/* Active view content */}
@@ -199,30 +238,48 @@ function DashboardLayout() {
 
   return (
     <>
-      {/* Mobile: stacked layout */}
+      {/* Global command palette (Cmd+K) */}
+      <CommandPalette onOpenChat={handleOpenChat} />
+
+      {/* Mobile: stacked layout + chat overlay */}
       <div className="flex flex-col h-full lg:hidden">
         <div className="border-b border-border">
           <ScrollArea className="max-h-[40vh]">{sidebarContent}</ScrollArea>
         </div>
         <div className="flex-1 overflow-hidden">{mainContent}</div>
+        <ChatSidebar
+          open={chatOpen}
+          onClose={handleCloseChat}
+          prefillMessage={chatPrefill}
+          currentCategory={selectedCategory}
+        />
       </div>
 
-      {/* Desktop: resizable panels */}
+      {/* Desktop: resizable panels + chat sidebar */}
       <div className="hidden lg:flex h-full">
-        <ResizablePanelGroup
-          orientation="horizontal"
-          id="inboxpilot-sidebar"
-          onLayoutChanged={handleLayoutChanged}
-          {...(savedLayout ? { defaultLayout: savedLayout } : {})}
-        >
-          <ResizablePanel id="sidebar" defaultSize="25%" minSize="15%" maxSize="40%">
-            <ScrollArea className="h-full">{sidebarContent}</ScrollArea>
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel id="main" defaultSize="75%" minSize="40%" maxSize="85%">
-            {mainContent}
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        <div className="flex-1 min-w-0">
+          <ResizablePanelGroup
+            orientation="horizontal"
+            id="inboxpilot-sidebar"
+            onLayoutChanged={handleLayoutChanged}
+            {...(savedLayout ? { defaultLayout: savedLayout } : {})}
+          >
+            <ResizablePanel id="sidebar" defaultSize="25%" minSize="15%" maxSize="40%">
+              <ScrollArea className="h-full">{sidebarContent}</ScrollArea>
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel id="main" defaultSize="75%" minSize="40%" maxSize="85%">
+              {mainContent}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+        {/* Chat sidebar inside flex container so it appears side-by-side */}
+        <ChatSidebar
+          open={chatOpen}
+          onClose={handleCloseChat}
+          prefillMessage={chatPrefill}
+          currentCategory={selectedCategory}
+        />
       </div>
     </>
   );
