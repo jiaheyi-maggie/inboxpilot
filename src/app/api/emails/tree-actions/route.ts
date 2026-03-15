@@ -110,15 +110,20 @@ export async function POST(request: NextRequest) {
     .select(selectFields)
     .eq('gmail_account_id', gmailAccount.id);
 
-  // Apply date range from config if provided
+  // Apply date range from config if provided — try view_configs first, fall back to grouping_configs
   if (configId) {
-    const { data: config } = await serviceClient
+    const { data: vcConfig } = await serviceClient
+      .from('view_configs')
+      .select('date_range_start, date_range_end')
+      .eq('id', configId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    const config = vcConfig ?? (await serviceClient
       .from('grouping_configs')
       .select('date_range_start, date_range_end')
       .eq('id', configId)
       .eq('user_id', user.id)
-      .limit(1)
-      .single();
+      .maybeSingle()).data;
     if (config) {
       if (config.date_range_start) {
         query = query.gte('received_at', config.date_range_start as string);

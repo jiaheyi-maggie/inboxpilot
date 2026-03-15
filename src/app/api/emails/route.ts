@@ -30,20 +30,54 @@ export async function GET(request: NextRequest) {
   const serviceClient = createServiceClient();
   const { searchParams } = new URL(request.url);
 
-  // Get user's active grouping config
+  // Get user's active config — try view_configs first, fall back to grouping_configs
   const configId = searchParams.get('configId');
-  let configQuery = serviceClient
-    .from('grouping_configs')
-    .select('*')
-    .eq('user_id', user.id);
+  let config: Record<string, unknown> | null = null;
 
   if (configId) {
-    configQuery = configQuery.eq('id', configId);
+    // Try view_configs first
+    const { data: vc } = await serviceClient
+      .from('view_configs')
+      .select('*')
+      .eq('id', configId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (vc) {
+      // Normalize view_configs shape to match grouping_configs
+      config = { ...vc, levels: vc.group_by };
+    } else {
+      // Fall back to grouping_configs
+      const { data: gc } = await serviceClient
+        .from('grouping_configs')
+        .select('*')
+        .eq('id', configId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      config = gc;
+    }
   } else {
-    configQuery = configQuery.eq('is_active', true);
+    // No configId — find active config from either table
+    const { data: vc } = await serviceClient
+      .from('view_configs')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+    if (vc) {
+      config = { ...vc, levels: vc.group_by };
+    } else {
+      const { data: gc } = await serviceClient
+        .from('grouping_configs')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      config = gc;
+    }
   }
 
-  const { data: config } = await configQuery.limit(1).single();
   if (!config) {
     return NextResponse.json({ error: 'No grouping config' }, { status: 404 });
   }

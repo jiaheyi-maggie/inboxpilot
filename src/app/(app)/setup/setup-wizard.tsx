@@ -136,6 +136,7 @@ export function SetupWizard() {
   // --- Save view mode to preferences + sync grouping config ---
 
   const saveViewMode = useCallback(async (mode: ViewMode) => {
+    // Save to legacy preferences (creates grouping_configs for backward compat)
     const res = await fetch('/api/settings/preferences', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -144,6 +145,28 @@ export function SetupWizard() {
     if (!res.ok) {
       throw new Error('Failed to save view mode');
     }
+
+    // Also create a view_configs row (new system)
+    const viewType = mode === 'flat' ? 'list' : 'tree';
+    const groupByMap: Record<string, { dimension: string; label: string }[]> = {
+      flat: [{ dimension: 'category', label: 'Category' }],
+      by_sender: [{ dimension: 'category', label: 'Category' }, { dimension: 'sender', label: 'Sender' }],
+      by_date: [{ dimension: 'category', label: 'Category' }, { dimension: 'date_month', label: 'Month' }],
+      by_topic: [{ dimension: 'category', label: 'Category' }, { dimension: 'topic', label: 'Topic' }],
+    };
+    await fetch('/api/settings/view-configs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Default',
+        view_type: viewType,
+        group_by: groupByMap[mode] ?? groupByMap.by_sender,
+        is_active: true,
+      }),
+    }).catch(() => {
+      // Non-critical — legacy path still works
+      console.warn('[setup] Failed to create view_configs row');
+    });
   }, []);
 
   // --- Apply generated setup ---
