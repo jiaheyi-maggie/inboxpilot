@@ -2,7 +2,11 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LandingHero } from '@/components/landing/hero';
 
-export default async function LandingPage() {
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -12,5 +16,7 @@ export default async function LandingPage() {
     redirect('/dashboard');
   }
 
-  return <LandingHero />;
+  const { error } = await searchParams;
+
+  return <LandingHero error={error} />;
 }

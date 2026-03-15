@@ -41,6 +41,7 @@ export async function GET(request: Request) {
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !data.session) {
+    console.error('[auth/callback] exchangeCodeForSession failed:', error?.message ?? 'no session');
     return NextResponse.redirect(`${origin}/?error=auth_failed`);
   }
 
@@ -97,15 +98,25 @@ export async function GET(request: Request) {
     }
 
     // Check if first-time user — redirect to setup wizard
-    const { data: existingConfig } = await serviceClient
-      .from('grouping_configs')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .limit(1)
-      .single();
+    // Check both view_configs (new system) and grouping_configs (legacy)
+    const [{ data: existingViewConfig }, { data: existingGroupConfig }] = await Promise.all([
+      serviceClient
+        .from('view_configs')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle(),
+      serviceClient
+        .from('grouping_configs')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    if (!existingConfig) {
+    if (!existingViewConfig && !existingGroupConfig) {
       return redirectWithCookies(`${origin}/setup`, pendingCookies);
     }
   }

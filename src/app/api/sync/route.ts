@@ -34,6 +34,18 @@ export async function POST() {
 
   const gmailAccount = account as GmailAccount;
 
+  // Check if the account has sufficient Gmail scopes
+  if (!gmailAccount.granted_scope || gmailAccount.granted_scope === 'none') {
+    return NextResponse.json(
+      {
+        error: 'Gmail permissions not granted',
+        details: 'Please sign out and sign in again to grant Gmail access.',
+        needsReauth: true,
+      },
+      { status: 403 }
+    );
+  }
+
   // Create sync job
   const { data: job } = await serviceClient
     .from('sync_jobs')
@@ -212,9 +224,16 @@ export async function POST() {
     }
 
     const errMsg = err instanceof Error ? err.message : 'Unknown error';
+    const isAuthError = errMsg.includes('insufficient authentication scopes') || errMsg.includes('401') || errMsg.includes('403');
     return NextResponse.json(
-      { error: 'Sync failed', details: errMsg },
-      { status: 500 }
+      {
+        error: 'Sync failed',
+        details: isAuthError
+          ? 'Gmail permissions expired or insufficient. Please sign out and sign in again.'
+          : errMsg,
+        needsReauth: isAuthError,
+      },
+      { status: isAuthError ? 403 : 500 }
     );
   }
 }
