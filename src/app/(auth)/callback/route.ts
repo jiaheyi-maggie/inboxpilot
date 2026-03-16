@@ -7,11 +7,12 @@ import { encrypt } from '@/lib/crypto';
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  const sessionReady = searchParams.get('session_ready') === 'true';
   // Validate `next` param to prevent open redirect attacks
   const rawNext = searchParams.get('next') ?? '/dashboard';
   const next = /^\/[a-zA-Z]/.test(rawNext) ? rawNext : '/dashboard';
 
-  if (!code) {
+  if (!code && !sessionReady) {
     return NextResponse.redirect(`${origin}/?error=no_code`);
   }
 
@@ -38,17 +39,43 @@ export async function GET(request: Request) {
     }
   );
 
-  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+  let session;
+  let user;
+  let providerToken: string | null = null;
+  let providerRefreshToken: string | null = null;
 
-  if (error || !data.session) {
-    console.error('[auth/callback] exchangeCodeForSession failed:', error?.message ?? 'no session');
+  if (sessionReady) {
+    // Session was already established by middleware — just read the user
+    const { data: { user: existingUser } } = await supabase.auth.getUser();
+    if (!existingUser) {
+      console.error('[auth/callback] session_ready but no user found in session');
+      return NextResponse.redirect(`${origin}/?error=auth_failed`);
+    }
+    user = existingUser;
+    // Provider tokens are only available during exchangeCodeForSession,
+    // not from getUser(). When middleware exchanges the code, provider tokens
+    // are in the session but we can't access them here.
+    // The session object from getSession() may have them.
+    const { data: sessionData } = await supabase.auth.getSession();
+    session = sessionData.session;
+    providerToken = (session?.provider_token as string | undefined) ?? null;
+    providerRefreshToken = (session?.provider_refresh_token as string | undefined) ?? null;
+  } else if (code) {
+    // Normal flow: exchange code for session
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error || !data.session) {
+      console.error('[auth/callback] exchangeCodeForSession failed:', error?.message ?? 'no session');
+      return NextResponse.redirect(`${origin}/?error=auth_failed`);
+    }
+
+    session = data.session;
+    user = session.user;
+    providerToken = session.provider_token ?? null;
+    providerRefreshToken = session.provider_refresh_token ?? null;
+  } else {
     return NextResponse.redirect(`${origin}/?error=auth_failed`);
   }
-
-  const session = data.session;
-  const user = session.user;
-  const providerToken = session.provider_token;
-  const providerRefreshToken = session.provider_refresh_token;
 
   // Store encrypted OAuth tokens for Gmail API access
   if (providerToken) {
@@ -92,7 +119,7 @@ export async function GET(request: Request) {
       email,
       access_token_encrypted: encrypt(providerToken),
       token_expires_at: new Date(
-        Date.now() + (session.expires_in ?? 3600) * 1000
+        Date.now() + (session?.expires_in ?? 3600) * 1000
       ).toISOString(),
       granted_scope: grantedScope,
     };

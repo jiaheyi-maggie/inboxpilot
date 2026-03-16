@@ -5,22 +5,8 @@ import { LandingHero } from '@/components/landing/hero';
 export default async function LandingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; code?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const { error, code } = await searchParams;
-
-  // Diagnostic: if ?code= arrives here, Supabase is NOT redirecting to /callback.
-  // This means the redirectTo URL is not in the Supabase Redirect URLs allow-list.
-  if (code) {
-    console.error(
-      '[auth/page] OAuth code arrived at / instead of /callback.',
-      'Check Supabase Dashboard > Auth > URL Configuration > Redirect URLs.',
-      'Must include: https://inboxpilot-azure.vercel.app/callback'
-    );
-    // Forward to callback via client-side navigation (preserves cookies)
-    redirect(`/callback?code=${encodeURIComponent(code)}`);
-  }
-
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -29,6 +15,8 @@ export default async function LandingPage({
   if (user) {
     redirect('/dashboard');
   }
+
+  const { error } = await searchParams;
 
   return <LandingHero error={error} />;
 }

@@ -25,6 +25,33 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Handle PKCE code exchange when Supabase sends ?code= to the Site URL (/).
+  // This MUST happen before getUser() — the code exchange establishes the session,
+  // and the middleware has guaranteed cookie read/write access.
+  const code = request.nextUrl.searchParams.get('code');
+  if (code && request.nextUrl.pathname === '/') {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      // Session established — redirect to /callback to handle token storage
+      // (account creation, scope detection, first-time user check).
+      // The session cookies are set via setAll() above, so /callback can read them.
+      const url = request.nextUrl.clone();
+      url.pathname = '/callback';
+      // Pass a flag so callback knows the code is already exchanged
+      url.searchParams.delete('code');
+      url.searchParams.set('session_ready', 'true');
+      return createRedirectWithCookies(url, supabaseResponse);
+    } else {
+      console.error('[middleware] exchangeCodeForSession failed:', error.message);
+      // Fall through to render landing page with error
+      const url = request.nextUrl.clone();
+      url.pathname = '/';
+      url.searchParams.delete('code');
+      url.searchParams.set('error', 'auth_failed');
+      return createRedirectWithCookies(url, supabaseResponse);
+    }
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -53,10 +80,6 @@ export async function updateSession(request: NextRequest) {
 
 /**
  * Create a redirect response that preserves auth cookies from supabaseResponse.
- *
- * When getUser() refreshes an expired token, new tokens are written to supabaseResponse
- * via setAll(). A bare NextResponse.redirect() creates a NEW response without those cookies.
- * With Supabase's refresh token rotation, losing the new token = permanent session loss.
  */
 function createRedirectWithCookies(url: URL, supabaseResponse: NextResponse): NextResponse {
   const redirectResponse = NextResponse.redirect(url);
