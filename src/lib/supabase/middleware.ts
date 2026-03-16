@@ -25,13 +25,6 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Skip getUser() when ?code= is present — the code exchange hasn't
-  // happened yet (it's done client-side). Calling getUser() here could
-  // interfere with the PKCE cookie state.
-  if (request.nextUrl.pathname === '/' && request.nextUrl.searchParams.has('code')) {
-    return supabaseResponse;
-  }
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -58,9 +51,6 @@ export async function updateSession(request: NextRequest) {
   return supabaseResponse;
 }
 
-/**
- * Create a redirect response that preserves auth cookies from supabaseResponse.
- */
 function createRedirectWithCookies(url: URL, supabaseResponse: NextResponse): NextResponse {
   const redirectResponse = NextResponse.redirect(url);
   supabaseResponse.cookies.getAll().forEach((cookie) => {

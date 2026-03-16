@@ -1,7 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LandingHero } from '@/components/landing/hero';
-import { CodeExchange } from '@/components/auth/code-exchange';
+import { AuthCallback } from '@/components/auth/auth-callback';
 
 export default async function LandingPage({
   searchParams,
@@ -10,10 +10,10 @@ export default async function LandingPage({
 }) {
   const { error, code } = await searchParams;
 
-  // PKCE code exchange must happen client-side because the code verifier
-  // cookie was set via document.cookie (browser-only, not in server cookies).
+  // For backward compat: if a ?code= arrives (PKCE), render client-side handler
+  // For implicit flow: tokens arrive in the hash (#), handled by AuthCallback
   if (code) {
-    return <CodeExchange code={code} />;
+    return <AuthCallback />;
   }
 
   const supabase = await createServerSupabaseClient();
@@ -25,5 +25,11 @@ export default async function LandingPage({
     redirect('/dashboard');
   }
 
-  return <LandingHero error={error} />;
+  return (
+    <>
+      <LandingHero error={error} />
+      {/* AuthCallback handles implicit flow hash tokens on any landing page load */}
+      <AuthCallback />
+    </>
+  );
 }
