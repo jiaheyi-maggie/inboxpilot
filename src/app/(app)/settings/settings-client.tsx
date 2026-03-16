@@ -87,6 +87,7 @@ export function SettingsClient({
   }, []);
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="max-w-lg mx-auto px-4 py-6 space-y-8">
       <div>
         <h1 className="text-xl font-semibold">Settings</h1>
@@ -153,6 +154,7 @@ export function SettingsClient({
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

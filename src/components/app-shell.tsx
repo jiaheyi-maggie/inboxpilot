@@ -146,8 +146,8 @@ export function AppShell({ userEmail, account, children }: AppShellProps) {
         </div>
       )}
 
-      {/* Page content */}
-      <main className="flex-1 overflow-y-auto">
+      {/* Page content — overflow-hidden so dashboard fills exactly; pages that scroll handle it themselves */}
+      <main className="flex-1 overflow-hidden">
         {children}
       </main>
     </div>

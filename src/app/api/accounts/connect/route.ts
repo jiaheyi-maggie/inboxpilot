@@ -4,9 +4,10 @@ import { google } from 'googleapis';
 import { cookies } from 'next/headers';
 
 function getOrigin(request: NextRequest): string {
-  // Use X-Forwarded-Host (set by Vercel/proxies) or Host header
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? 'localhost:3000';
-  const protocol = request.headers.get('x-forwarded-proto') ?? 'http';
+  // x-forwarded-proto can be comma-separated (e.g., "https, http") — take the first
+  const rawProto = request.headers.get('x-forwarded-proto') ?? 'http';
+  const protocol = rawProto.split(',')[0].trim();
   return `${protocol}://${host}`;
 }
 

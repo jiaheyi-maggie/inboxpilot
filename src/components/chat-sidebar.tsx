@@ -200,60 +200,109 @@ export function ChatSidebar({
 
   const handleApplyContext = useCallback(
     async (msgId: string, intent: IntentResponse) => {
+      // Optimistically mark resolved to prevent double-clicks
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, resolved: true } : m))
+      );
+
       const target = (intent.details.target as string) ?? '';
       const contextText = (intent.details.context_text as string) ?? intent.summary;
 
-      // Extract category name from "category:Name" format
-      const categoryMatch = target.match(/^category:(.+)$/);
-      if (!categoryMatch) {
-        toast.error('Could not determine target category');
-        return;
-      }
+      // Helper to revert optimistic resolved state on error
+      const revertResolved = () =>
+        setMessages((prev) =>
+          prev.map((m) => (m.id === msgId ? { ...m, resolved: false } : m))
+        );
 
-      const categoryName = categoryMatch[1];
-
-      // Fetch category ID by name
+      // Fetch categories first — needed for both targeted and general context
+      let categories: { id: string; name: string; description: string | null }[];
       try {
         const catRes = await fetch('/api/categories');
         if (!catRes.ok) {
           toast.error('Failed to fetch categories');
+          revertResolved();
           return;
         }
-        const { categories } = await catRes.json();
-        const category = categories?.find(
-          (c: { name: string }) =>
-            c.name.toLowerCase() === categoryName.toLowerCase()
+        const data = await catRes.json();
+        categories = data.categories ?? [];
+      } catch {
+        toast.error('Failed to apply context');
+        revertResolved();
+        return;
+      }
+
+      // Try to resolve the target category
+      let matchedCategory: (typeof categories)[number] | undefined;
+
+      // 1. Try explicit "category:Name" format
+      const categoryMatch = target.match(/^category:(.+)$/);
+      if (categoryMatch) {
+        const categoryName = categoryMatch[1];
+        matchedCategory = categories.find(
+          (c) => c.name.toLowerCase() === categoryName.toLowerCase()
         );
+      }
 
-        if (!category) {
-          toast.error(`Category "${categoryName}" not found`);
+      // 2. If target is "general" or didn't match, try fuzzy-matching the context
+      //    text against category names (e.g., "google security alerts" → "Security")
+      //    Only match names >= 3 chars to avoid false positives on short names like "AI"
+      if (!matchedCategory && categories.length > 0) {
+        const lowerContext = contextText.toLowerCase();
+        matchedCategory = categories.find(
+          (c) => c.name.length >= 3 && lowerContext.includes(c.name.toLowerCase())
+        );
+      }
+
+      // 3. If still no match but user is viewing a category, use that
+      if (!matchedCategory && currentCategory) {
+        matchedCategory = categories.find(
+          (c) => c.name.toLowerCase() === currentCategory.toLowerCase()
+        );
+      }
+
+      if (!matchedCategory) {
+        toast.error(
+          'Could not determine which category to update. Try mentioning a specific category name.',
+          { duration: 5000 }
+        );
+        revertResolved();
+        return;
+      }
+
+      // Update category description — append if not already present
+      try {
+        const existingDesc = matchedCategory.description?.trim() ?? '';
+
+        // Dedup: skip if this exact context is already in the description
+        if (existingDesc.includes(contextText.trim())) {
+          toast.info(`"${matchedCategory.name}" already has this context`);
           return;
         }
 
-        // Update category description
-        const updateRes = await fetch(`/api/categories/${category.id}`, {
+        const newDesc = existingDesc
+          ? `${existingDesc}\n${contextText}`
+          : contextText;
+
+        const updateRes = await fetch(`/api/categories/${matchedCategory.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            description: contextText,
-          }),
+          body: JSON.stringify({ description: newDesc }),
         });
 
         if (!updateRes.ok) {
           const err = await updateRes.json().catch(() => ({}));
           toast.error(err.error || 'Failed to update category');
+          revertResolved();
           return;
         }
 
-        toast.success(`Updated description for "${categoryName}"`);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msgId ? { ...m, resolved: true } : m))
-        );
+        toast.success(`Updated "${matchedCategory.name}" — AI will use this context for future categorization`);
       } catch {
         toast.error('Failed to apply context');
+        revertResolved();
       }
     },
-    []
+    [currentCategory]
   );
 
   const handleExecuteCommand = useCallback(

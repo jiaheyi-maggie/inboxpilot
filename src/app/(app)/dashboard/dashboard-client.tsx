@@ -256,10 +256,10 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
         </div>
         <ViewToolbar />
       </div>
-      {/* Active view content */}
-      <ScrollArea className="flex-1">
+      {/* Active view content — use native overflow instead of ScrollArea so board view can scroll horizontally */}
+      <div className="flex-1 min-h-0 overflow-auto">
         <ActiveViewRouter accountColorMap={accountColorMap} showAccountDot={accounts.length > 1} accountDisplayMap={accountDisplayMap} />
-      </ScrollArea>
+      </div>
     </div>
   );
 
@@ -269,11 +269,11 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       <CommandPalette onOpenChat={handleOpenChat} />
 
       {/* Mobile: stacked layout + chat overlay */}
-      <div className="flex flex-col h-full lg:hidden">
-        <div className="border-b border-border">
-          <ScrollArea className="max-h-[40vh]">{sidebarContent}</ScrollArea>
+      <div className="flex flex-col h-full min-h-0 lg:hidden">
+        <div className="border-b border-border flex-shrink-0">
+          <ScrollArea className="max-h-[30vh] sm:max-h-[35vh]">{sidebarContent}</ScrollArea>
         </div>
-        <div className="flex-1 overflow-hidden">{mainContent}</div>
+        <div className="flex-1 min-h-0 overflow-hidden">{mainContent}</div>
         <ChatSidebar
           open={chatOpen}
           onClose={handleCloseChat}

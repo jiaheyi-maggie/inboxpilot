@@ -12,7 +12,8 @@ const ACCOUNT_COLORS = [
 
 function getOrigin(request: NextRequest): string {
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? 'localhost:3000';
-  const protocol = request.headers.get('x-forwarded-proto') ?? 'http';
+  const rawProto = request.headers.get('x-forwarded-proto') ?? 'http';
+  const protocol = rawProto.split(',')[0].trim();
   return `${protocol}://${host}`;
 }
 
