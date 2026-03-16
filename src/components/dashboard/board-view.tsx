@@ -7,7 +7,9 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  closestCenter,
   closestCorners,
+  type CollisionDetection,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
@@ -220,6 +222,7 @@ export function BoardView({
 
   // Track what is being dragged: a card or a column
   const [activeDragType, setActiveDragType] = useState<DragType | null>(null);
+  const activeDragTypeRef = useRef<DragType | null>(null);
   const [activeEmail, setActiveEmail] = useState<EmailWithCategory | null>(null);
   const [activeColumnKey, setActiveColumnKey] = useState<string | null>(null);
 
@@ -252,6 +255,22 @@ export function BoardView({
     [columnOrder],
   );
 
+  // Custom collision detection: during column drags, only consider column:*
+  // sortables so nested card-drop zones don't win the collision and prevent
+  // SortableContext from computing transforms.
+  const collisionDetection: CollisionDetection = useCallback(
+    (args) => {
+      if (activeDragTypeRef.current === 'column') {
+        const columnContainers = args.droppableContainers.filter(
+          (container) => String(container.id).startsWith('column:')
+        );
+        return closestCenter({ ...args, droppableContainers: columnContainers });
+      }
+      return closestCorners(args);
+    },
+    [],
+  );
+
   // Sensors: require 5px movement before activating drag (prevents click conflicts)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -270,6 +289,7 @@ export function BoardView({
       const type: DragType = dragData?.type === 'column' ? 'column' : 'card';
 
       setActiveDragType(type);
+      activeDragTypeRef.current = type;
 
       if (type === 'column') {
         // Column drag: extract groupKey from the sortable ID
@@ -344,6 +364,7 @@ export function BoardView({
 
       // Reset drag state
       setActiveDragType(null);
+      activeDragTypeRef.current = null;
       setActiveEmail(null);
       setActiveColumnKey(null);
 
@@ -531,6 +552,7 @@ export function BoardView({
     }
 
     setActiveDragType(null);
+    activeDragTypeRef.current = null;
     setActiveEmail(null);
     setActiveColumnKey(null);
 
@@ -543,7 +565,7 @@ export function BoardView({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}

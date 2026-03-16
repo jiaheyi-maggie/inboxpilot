@@ -247,30 +247,101 @@ export function TreeView({
       onDragCancel={handleDragCancel}
     >
       <div className="flex flex-col h-full">
-        {selectedPath ? (
-          <div className="flex-1 overflow-auto">
+        {/* Folder tree — always rendered so droppable targets stay in the DOM */}
+        <div
+          className={`p-3 space-y-0.5 overflow-auto ${
+            selectedPath
+              ? 'flex-shrink-0 max-h-[40%] border-b border-border'
+              : 'flex-1'
+          }`}
+        >
+          {selectedPath && (
             <button
               onClick={() => {
                 setSelectedPath(null);
                 setSelectedEmails([]);
               }}
-              className="p-3 text-sm text-primary font-medium"
+              className="mb-1 text-sm text-primary font-medium hover:underline"
             >
-              &larr; Back to tree
+              &larr; Back to full tree
             </button>
+          )}
+
+          {filteredNodes.length === 0 && !selectedPath && (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-sm">No groups found</p>
+            </div>
+          )}
+          {filteredNodes.map((node) => (
+            <TreeNode
+              key={node.group_key}
+              label={node.group_key}
+              count={node.count}
+              dimension={levels[0]?.dimension ?? 'category'}
+              level={0}
+              path={[]}
+              configId={configId}
+              totalLevels={levels.length}
+              levels={levels}
+              onSelectEmails={handleSelectEmails}
+              selectedPath={selectedPath}
+              onTreeChanged={onEmailMoved}
+              categoryData={isCategoryDimension ? categoryMap.get(node.group_key) : undefined}
+              onCategoryRenamed={handleCategoryRenamed}
+              onCategoryDeleted={handleCategoryDeleted}
+              onNewCategory={handleNewCategory}
+            />
+          ))}
+
+          {/* New Category inline input */}
+          {showNewCategoryInput && (
+            <div className="flex items-center gap-2 px-2 py-2">
+              <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <input
+                ref={newCategoryInputRef}
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                onKeyDown={handleNewCategoryKeyDown}
+                onBlur={commitNewCategory}
+                placeholder="Category name..."
+                className="flex-1 min-w-0 bg-transparent border border-primary/50 rounded px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30"
+                maxLength={50}
+                disabled={newCategoryLoading}
+              />
+              {newCategoryLoading && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground flex-shrink-0" />
+              )}
+            </div>
+          )}
+
+          {/* New Category button (only for category dimension) */}
+          {isCategoryDimension && categoriesLoaded && !showNewCategoryInput && (
+            <button
+              onClick={handleNewCategory}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>New Category</span>
+            </button>
+          )}
+        </div>
+
+        {/* Email list — shown below the tree when a folder is selected */}
+        {selectedPath && (
+          <div className="flex-1 min-h-0 overflow-auto">
             {emailsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 <span className="ml-2 text-sm text-muted-foreground">Loading emails...</span>
               </div>
             ) : (
-              <div className="space-y-0.5 px-3">
+              <div className="space-y-0.5 px-3 py-2">
                 {selectedEmails.map((email) => (
                   <DraggableEmailRow
                     key={email.id}
                     email={email}
                     onSelect={() => {
-                      // Email detail selection — dispatch event (matches existing pattern)
                       window.dispatchEvent(
                         new CustomEvent('inboxpilot:unread-email-selected', { detail: email })
                       );
@@ -285,67 +356,6 @@ export function TreeView({
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="p-3 space-y-0.5 overflow-auto flex-1">
-            {filteredNodes.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <p className="text-sm">No groups found</p>
-              </div>
-            )}
-            {filteredNodes.map((node) => (
-              <TreeNode
-                key={node.group_key}
-                label={node.group_key}
-                count={node.count}
-                dimension={levels[0]?.dimension ?? 'category'}
-                level={0}
-                path={[]}
-                configId={configId}
-                totalLevels={levels.length}
-                levels={levels}
-                onSelectEmails={handleSelectEmails}
-                selectedPath={selectedPath}
-                onTreeChanged={onEmailMoved}
-                categoryData={isCategoryDimension ? categoryMap.get(node.group_key) : undefined}
-                onCategoryRenamed={handleCategoryRenamed}
-                onCategoryDeleted={handleCategoryDeleted}
-                onNewCategory={handleNewCategory}
-              />
-            ))}
-
-            {/* New Category inline input */}
-            {showNewCategoryInput && (
-              <div className="flex items-center gap-2 px-2 py-2">
-                <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <input
-                  ref={newCategoryInputRef}
-                  type="text"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  onKeyDown={handleNewCategoryKeyDown}
-                  onBlur={commitNewCategory}
-                  placeholder="Category name..."
-                  className="flex-1 min-w-0 bg-transparent border border-primary/50 rounded px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30"
-                  maxLength={50}
-                  disabled={newCategoryLoading}
-                />
-                {newCategoryLoading && (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground flex-shrink-0" />
-                )}
-              </div>
-            )}
-
-            {/* New Category button (only for category dimension) */}
-            {isCategoryDimension && categoriesLoaded && !showNewCategoryInput && (
-              <button
-                onClick={handleNewCategory}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                <span>New Category</span>
-              </button>
             )}
           </div>
         )}

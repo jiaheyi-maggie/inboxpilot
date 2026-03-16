@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Folder, AlertCircle, Mail } from 'lucide-react';
+import { Folder, AlertCircle, Inbox, Mail } from 'lucide-react';
 import { UnreadSection } from './unread-section';
 import { SystemGroups } from './system-groups';
 import { CategoryTeachInput } from './category-teach-input';
@@ -277,6 +277,25 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: S
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 pb-1">
               Categories
             </p>
+            {/* "All" item to clear category filter */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedCategory(null)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCategory(null); } }}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer
+                ${!selectedCategory
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-foreground hover:bg-accent'
+                }
+              `}
+            >
+              <Inbox className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate flex-1 text-left">All Categories</span>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {rootNodes.reduce((sum, n) => sum + n.count, 0)}
+              </span>
+            </div>
             {rootNodes.map((node) => {
               const meta = categoryMeta.get(node.group_key);
               return (

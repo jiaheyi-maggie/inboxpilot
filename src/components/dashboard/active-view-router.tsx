@@ -1,13 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useView } from '@/contexts/view-context';
 import { EmailList } from './email-list';
 import { EmailDetail } from './email-detail';
 import { TreeView } from './tree-view';
 import { BoardView } from './board-view';
-import type { EmailWithCategory, TreeNode, SystemGroupKey, DimensionKey } from '@/types';
+import { ViewBreadcrumb } from './view-breadcrumb';
+import type { EmailWithCategory, TreeNode, DimensionKey } from '@/types';
 
 interface ActiveViewRouterProps {
   /** Map of gmail_account_id -> hex color (for account dot indicators) */
@@ -27,11 +28,9 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     groupBy,
     selectedCategory,
     selectedSystemGroup,
-    setSelectedSystemGroup,
     selectedAccountId,
     selectedEmailId,
     setSelectedEmailId,
-    setSelectedCategory,
     refreshKey,
     triggerRefresh,
     viewConfig,
@@ -233,29 +232,35 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
   // If an email is selected for detail view
   if (selectedEmail) {
     return (
-      <EmailDetail
-        email={selectedEmail}
-        onBack={handleBack}
-        onRemoved={handleEmailRemoved}
-        onUpdated={handleEmailUpdated}
-        onCategoryChanged={handleCategoryChanged}
-      />
+      <div className="h-full flex flex-col">
+        <ViewBreadcrumb
+          emailCount={emails.length}
+          selectedEmailSubject={selectedEmail.subject}
+        />
+        <div className="flex-1 min-h-0">
+          <EmailDetail
+            email={selectedEmail}
+            onBack={handleBack}
+            onRemoved={handleEmailRemoved}
+            onUpdated={handleEmailUpdated}
+            onCategoryChanged={handleCategoryChanged}
+          />
+        </div>
+      </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+      <div className="h-full flex flex-col">
+        <ViewBreadcrumb emailCount={0} />
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+        </div>
       </div>
     );
   }
-
-  // System group header
-  const systemGroupLabel = selectedSystemGroup
-    ? { starred: 'Starred', archived: 'Archived', trash: 'Trash' }[selectedSystemGroup]
-    : null;
 
   // Board view — kanban columns grouped by the first groupBy dimension (default: category)
   if (viewType === 'board') {
@@ -271,7 +276,8 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     };
 
     return (
-      <div className="h-full">
+      <div className="h-full flex flex-col">
+        <ViewBreadcrumb emailCount={emails.length} />
         {emails.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p className="text-sm">No emails to display on the board</p>
@@ -285,15 +291,17 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
             )}
           </div>
         ) : (
-          <BoardView
-            emails={emails}
-            groupByDimension={boardDimension}
-            onSelectEmail={handleBoardSelectEmail}
-            onEmailMoved={handleEmailMoved}
-            accountColorMap={accountColorMap}
-            showAccountDot={showAccountDot}
-            accountDisplayMap={accountDisplayMap}
-          />
+          <div className="flex-1 min-h-0">
+            <BoardView
+              emails={emails}
+              groupByDimension={boardDimension}
+              onSelectEmail={handleBoardSelectEmail}
+              onEmailMoved={handleEmailMoved}
+              accountColorMap={accountColorMap}
+              showAccountDot={showAccountDot}
+              accountDisplayMap={accountDisplayMap}
+            />
+          </div>
         )}
       </div>
     );
@@ -302,53 +310,35 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
   // Tree view — render when tree type is selected and groupBy is configured
   if (viewType === 'tree' && groupBy.length > 0) {
     return (
-      <TreeView
-        nodes={treeNodes}
-        configId={viewConfig.id}
-        groupBy={groupBy}
-        onSelectEmails={(emails) => setEmails(emails)}
-        onEmailMoved={handleEmailMoved}
-        selectedCategory={selectedCategory}
-      />
+      <div className="h-full flex flex-col">
+        <ViewBreadcrumb emailCount={treeNodes.reduce((sum, n) => sum + (n.count ?? 0), 0)} />
+        <div className="flex-1 min-h-0">
+          <TreeView
+            nodes={treeNodes}
+            configId={viewConfig.id}
+            groupBy={groupBy}
+            onSelectEmails={(emails) => setEmails(emails)}
+            onEmailMoved={handleEmailMoved}
+            selectedCategory={selectedCategory}
+          />
+        </div>
+      </div>
     );
   }
 
   // List view (default) — also used for system groups and filtered results
   return (
     <div>
-      {systemGroupLabel && (
-        <div className="px-4 py-2 border-b border-border">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-medium text-foreground">{systemGroupLabel}</h2>
-            <button
-              onClick={() => setSelectedSystemGroup(null)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
-      {selectedCategory && !selectedSystemGroup && (
-        <div className="px-4 py-2 border-b border-border">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-medium text-foreground">{selectedCategory}</h2>
-            <button
-              onClick={() => setSelectedCategory(null)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Show all
-            </button>
-          </div>
-        </div>
-      )}
+      <ViewBreadcrumb emailCount={emails.length} />
       {emails.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <p className="text-sm">
             {selectedCategory
               ? `No emails in ${selectedCategory}`
               : selectedSystemGroup
-                ? `No ${systemGroupLabel?.toLowerCase()} emails`
+                ? `No ${
+                    { starred: 'starred', archived: 'archived', trash: 'trash' }[selectedSystemGroup]
+                  } emails`
                 : 'No emails match your current filters'}
           </p>
           {filters.length > 0 && (

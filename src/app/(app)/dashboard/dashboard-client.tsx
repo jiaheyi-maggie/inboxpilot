@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { ViewProvider, useView } from '@/contexts/view-context';
 import { Sidebar } from '@/components/dashboard/sidebar';
+import { MobileScopeBar } from '@/components/dashboard/mobile-scope-bar';
+import { MobileCategorySheet } from '@/components/dashboard/mobile-category-sheet';
 import { ViewTabs } from '@/components/dashboard/view-tabs';
 import { ViewToolbar } from '@/components/dashboard/view-toolbar';
 import { ActiveViewRouter } from '@/components/dashboard/active-view-router';
@@ -76,7 +78,23 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
 // ── Inner layout component that can use useView() ──
 
 function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
-  const { refreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId } = useView();
+  const { refreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId } = useView();
+
+  // Escape key clears category/system group selection (global navigation shortcut)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        // Don't interfere with modals/inputs
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        setSelectedCategory(null);
+        setSelectedSystemGroup(null);
+        setSelectedEmailId(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [setSelectedCategory, setSelectedSystemGroup, setSelectedEmailId]);
 
   // Build account color map: gmail_account_id -> color (stable across renders)
   const accountColorMap = useMemo(() => {
@@ -110,6 +128,26 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
     // Don't clear prefill immediately — ChatSidebar needs it during close animation
     setTimeout(() => setChatPrefill(undefined), 400);
   }, []);
+
+  // Mobile bottom sheet state
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch unread count for mobile scope bar
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const url = new URL('/api/emails/unread', window.location.origin);
+      if (selectedAccountId) {
+        url.searchParams.set('accountId', selectedAccountId);
+      }
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data = await res.json();
+      setUnreadCount(data.emails?.length ?? 0);
+    } catch {
+      // Non-critical — scope bar just won't show a count
+    }
+  }, [selectedAccountId]);
 
   // Root nodes for sidebar category list
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
@@ -154,7 +192,8 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
     fetchRootNodes(true).then(() => {
       setTimeout(() => { initialLoadDoneRef.current = true; }, 3000);
     });
-  }, [fetchRootNodes, refreshKey]);
+    fetchUnreadCount();
+  }, [fetchRootNodes, fetchUnreadCount, refreshKey]);
 
   // Debounced refresh for realtime events
   const debouncedRefresh = useCallback((showToast?: { title: string; description: string }) => {
@@ -165,8 +204,9 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       }
       triggerRefresh();
       fetchRootNodes(false);
+      fetchUnreadCount();
     }, 500);
-  }, [fetchRootNodes, triggerRefresh]);
+  }, [fetchRootNodes, fetchUnreadCount, triggerRefresh]);
 
   // Supabase Realtime subscription
   useEffect(() => {
@@ -268,12 +308,29 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       {/* Global command palette (Cmd+K) */}
       <CommandPalette onOpenChat={handleOpenChat} />
 
-      {/* Mobile: stacked layout + chat overlay */}
+      {/* Mobile: scope bar + bottom sheet + chat overlay */}
       <div className="flex flex-col h-full min-h-0 lg:hidden">
-        <div className="border-b border-border flex-shrink-0">
-          <ScrollArea className="max-h-[30vh] sm:max-h-[35vh]">{sidebarContent}</ScrollArea>
-        </div>
+        <MobileScopeBar
+          selectedCategory={selectedCategory}
+          selectedSystemGroup={selectedSystemGroup}
+          unreadCount={unreadCount}
+          selectedAccountId={selectedAccountId}
+          accountColor={selectedAccountId ? accountColorMap.get(selectedAccountId) : undefined}
+          onOpenSheet={() => setMobileSheetOpen(true)}
+        />
         <div className="flex-1 min-h-0 overflow-hidden">{mainContent}</div>
+        <MobileCategorySheet
+          open={mobileSheetOpen}
+          onClose={() => setMobileSheetOpen(false)}
+          rootNodes={rootNodes}
+          selectedCategory={selectedCategory}
+          selectedSystemGroup={selectedSystemGroup}
+          selectedAccountId={selectedAccountId}
+          accounts={accounts}
+          onSelectCategory={setSelectedCategory}
+          onSelectSystemGroup={setSelectedSystemGroup}
+          onSelectAccount={setSelectedAccountId}
+        />
         <ChatSidebar
           open={chatOpen}
           onClose={handleCloseChat}

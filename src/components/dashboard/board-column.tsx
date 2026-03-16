@@ -74,6 +74,7 @@ export function BoardColumn({ groupKey, emails, onSelectEmail, accountColorMap, 
             type="button"
             className="flex-shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground transition-colors -ml-1"
             aria-label={`Drag to reorder ${groupKey} column`}
+            style={{ touchAction: 'none' }}
             {...sortableAttributes}
             {...sortableListeners}
           >
