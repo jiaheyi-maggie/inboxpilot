@@ -25,31 +25,11 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Handle PKCE code exchange when Supabase sends ?code= to the Site URL (/).
-  // This MUST happen before getUser() — the code exchange establishes the session,
-  // and the middleware has guaranteed cookie read/write access.
-  const code = request.nextUrl.searchParams.get('code');
-  if (code && request.nextUrl.pathname === '/') {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      // Session established — redirect to /callback to handle token storage
-      // (account creation, scope detection, first-time user check).
-      // The session cookies are set via setAll() above, so /callback can read them.
-      const url = request.nextUrl.clone();
-      url.pathname = '/callback';
-      // Pass a flag so callback knows the code is already exchanged
-      url.searchParams.delete('code');
-      url.searchParams.set('session_ready', 'true');
-      return createRedirectWithCookies(url, supabaseResponse);
-    } else {
-      console.error('[middleware] exchangeCodeForSession failed:', error.message);
-      // Fall through to render landing page with error
-      const url = request.nextUrl.clone();
-      url.pathname = '/';
-      url.searchParams.delete('code');
-      url.searchParams.set('error', 'auth_failed');
-      return createRedirectWithCookies(url, supabaseResponse);
-    }
+  // Skip getUser() when ?code= is present — the code exchange hasn't
+  // happened yet (it's done client-side). Calling getUser() here could
+  // interfere with the PKCE cookie state.
+  if (request.nextUrl.pathname === '/' && request.nextUrl.searchParams.has('code')) {
+    return supabaseResponse;
   }
 
   const {
