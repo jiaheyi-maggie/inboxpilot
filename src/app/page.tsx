@@ -9,8 +9,15 @@ export default async function LandingPage({
 }) {
   const { error, code } = await searchParams;
 
-  // If Supabase sent the OAuth code to / instead of /callback, forward it
+  // Diagnostic: if ?code= arrives here, Supabase is NOT redirecting to /callback.
+  // This means the redirectTo URL is not in the Supabase Redirect URLs allow-list.
   if (code) {
+    console.error(
+      '[auth/page] OAuth code arrived at / instead of /callback.',
+      'Check Supabase Dashboard > Auth > URL Configuration > Redirect URLs.',
+      'Must include: https://inboxpilot-azure.vercel.app/callback'
+    );
+    // Forward to callback via client-side navigation (preserves cookies)
     redirect(`/callback?code=${encodeURIComponent(code)}`);
   }
 
