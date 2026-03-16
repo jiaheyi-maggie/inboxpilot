@@ -22,9 +22,11 @@ interface UnreadSectionProps {
   onSelectEmail?: (email: Email) => void;
   /** Increment to trigger a re-fetch (e.g. when emails change externally) */
   refreshKey?: number;
+  /** When set, only show unread emails for this account */
+  selectedAccountId?: string | null;
 }
 
-export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey }: UnreadSectionProps) {
+export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selectedAccountId }: UnreadSectionProps) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -32,8 +34,13 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey }: Unread
   const [error, setError] = useState<string | null>(null);
 
   const fetchUnread = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/emails/unread');
+      const url = new URL('/api/emails/unread', window.location.origin);
+      if (selectedAccountId) {
+        url.searchParams.set('accountId', selectedAccountId);
+      }
+      const res = await fetch(url.toString());
       if (!res.ok) {
         setError('Failed to load unread emails');
         return;
@@ -46,7 +53,7 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey }: Unread
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedAccountId]);
 
   useEffect(() => {
     fetchUnread();

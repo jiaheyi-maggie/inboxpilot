@@ -49,6 +49,10 @@ interface ViewContextValue {
   selectedSystemGroup: SystemGroupKey | null;
   setSelectedSystemGroup: (group: SystemGroupKey | null) => void;
 
+  // ── Account filter (multi-inbox) ──
+  selectedAccountId: string | null;
+  setSelectedAccountId: (id: string | null) => void;
+
   // ── Email selection ──
   selectedEmailId: string | null;
   setSelectedEmailId: (id: string | null) => void;
@@ -95,6 +99,7 @@ export function ViewProvider({
   // Navigation state
   const [selectedCategory, setSelectedCategoryState] = useState<string | null>(null);
   const [selectedSystemGroup, setSelectedSystemGroupState] = useState<SystemGroupKey | null>(null);
+  const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
   // Refresh trigger — single counter incremented by both internal and external events
@@ -193,6 +198,11 @@ export function ViewProvider({
     setSelectedEmailId(null);
   }, []);
 
+  const setSelectedAccountId = useCallback((id: string | null) => {
+    setSelectedAccountIdState(id);
+    setSelectedEmailId(null);
+  }, []);
+
   const value = useMemo<ViewContextValue>(
     () => ({
       viewConfig,
@@ -210,6 +220,8 @@ export function ViewProvider({
       setSelectedCategory,
       selectedSystemGroup,
       setSelectedSystemGroup,
+      selectedAccountId,
+      setSelectedAccountId,
       selectedEmailId,
       setSelectedEmailId,
       refreshKey,
@@ -231,6 +243,8 @@ export function ViewProvider({
       setSelectedCategory,
       selectedSystemGroup,
       setSelectedSystemGroup,
+      selectedAccountId,
+      setSelectedAccountId,
       selectedEmailId,
       refreshKey,
       triggerRefresh,

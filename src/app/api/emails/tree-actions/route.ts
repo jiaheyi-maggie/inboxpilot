@@ -76,24 +76,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Get user's Gmail account
-  const { data: account } = await serviceClient
+  // Get user's Gmail accounts (multi-inbox)
+  const { data: allAccounts } = await serviceClient
     .from('gmail_accounts')
     .select('*')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .eq('user_id', user.id);
 
-  if (!account) {
+  if (!allAccounts || allAccounts.length === 0) {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
   }
 
-  const gmailAccount = account as GmailAccount;
+  const allAccountIds = allAccounts.map((a) => a.id);
+
+  // Build account lookup map for multi-inbox Gmail API calls
+  const accountMap = new Map<string, GmailAccount>();
+  for (const a of allAccounts) {
+    accountMap.set(a.id, a as GmailAccount);
+  }
 
   // --- Resolve to email rows ---
   // When emailIds provided directly (bulk list actions), skip filter resolution
   if (useDirectIds) {
-    return handleDirectIds(emailIds!, action as string, newCategory, gmailAccount, serviceClient);
+    return handleDirectIds(emailIds!, action as string, newCategory, allAccountIds, accountMap, serviceClient);
   }
 
   // Same logic as /api/emails: use Supabase for email-table filters, JS for category/date
@@ -102,13 +106,13 @@ export async function POST(request: NextRequest) {
     action === 'reassign';
 
   const selectFields = needsCategories
-    ? 'id, gmail_message_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at, email_categories(*)'
-    : 'id, gmail_message_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at';
+    ? 'id, gmail_message_id, gmail_account_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at, email_categories(*)'
+    : 'id, gmail_message_id, gmail_account_id, label_ids, is_read, sender_email, sender_domain, has_attachment, received_at';
 
   let query = serviceClient
     .from('emails')
     .select(selectFields)
-    .eq('gmail_account_id', gmailAccount.id);
+    .in('gmail_account_id', allAccountIds);
 
   // Apply date range from config if provided — try view_configs first, fall back to grouping_configs
   if (configId) {
@@ -196,16 +200,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, affected: 0, skipped: skippedRows.length });
   }
 
-  const gmailMessageIds = gmailRows.map((r) => r.gmail_message_id as string);
+  // --- Group emails by gmail_account_id for per-account Gmail API calls ---
+  const emailsByAccount = new Map<string, typeof gmailRows>();
+  for (const row of gmailRows) {
+    const acctId = row.gmail_account_id as string;
+    const list = emailsByAccount.get(acctId);
+    if (list) {
+      list.push(row);
+    } else {
+      emailsByAccount.set(acctId, [row]);
+    }
+  }
 
   // --- Execute action ---
   try {
     switch (action) {
       case 'trash': {
-        if (gmailAccount.granted_scope !== 'gmail.modify') {
-          return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
+        let totalTrashed = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of emailsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') {
+            totalFailed += acctRows.length;
+            continue;
+          }
+          const acctGmailIds = acctRows.map((r) => r.gmail_message_id as string);
+          const result = await trashEmails(acct, acctGmailIds);
+          totalTrashed += result.trashed;
+          totalFailed += result.failed;
         }
-        const trashResult = await trashEmails(gmailAccount, gmailMessageIds);
         // Soft-delete: update labels (remove INBOX, add TRASH) instead of deleting from DB
         const trashDbResults = await Promise.allSettled(
           gmailRows.map((e) => {
@@ -225,17 +248,26 @@ export async function POST(request: NextRequest) {
         }
         const trashActionResult = buildActionResult(
           'trash',
-          { affected: trashResult.trashed, failed: trashResult.failed },
+          { affected: totalTrashed, failed: totalFailed },
           trashDbFailed > 0 ? `${trashDbFailed} DB label updates failed` : null,
         );
         return NextResponse.json(trashActionResult.body, { status: trashActionResult.status });
       }
 
       case 'archive': {
-        if (gmailAccount.granted_scope !== 'gmail.modify') {
-          return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
+        let totalArchived = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of emailsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') {
+            totalFailed += acctRows.length;
+            continue;
+          }
+          const acctGmailIds = acctRows.map((r) => r.gmail_message_id as string);
+          const result = await archiveEmails(acct, acctGmailIds);
+          totalArchived += result.archived;
+          totalFailed += result.failed;
         }
-        const archiveResult = await archiveEmails(gmailAccount, gmailMessageIds);
         // Update label_ids: remove INBOX for each email
         const archiveDbResults = await Promise.allSettled(
           gmailRows.map((e) => {
@@ -256,24 +288,39 @@ export async function POST(request: NextRequest) {
         }
         const archiveActionResult = buildActionResult(
           'archive',
-          { affected: archiveResult.archived, failed: archiveResult.failed },
+          { affected: totalArchived, failed: totalFailed },
           archiveDbFailed > 0 ? `${archiveDbFailed} DB label updates failed` : null,
         );
         return NextResponse.json(archiveActionResult.body, { status: archiveActionResult.status });
       }
 
       case 'mark_read': {
-        if (gmailAccount.granted_scope !== 'gmail.modify') {
-          return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
-        }
         // Only modify unread emails
         const unreadRows = gmailRows.filter((r) => r.is_read === false);
         if (unreadRows.length === 0) {
           return NextResponse.json({ success: true, action: 'mark_read', affected: 0 });
         }
-        const unreadGmailIds = unreadRows.map((r) => r.gmail_message_id as string);
+        let totalUpdated = 0;
+        let totalFailed = 0;
+        // Group unread rows by account for per-account API calls
+        const unreadByAccount = new Map<string, typeof unreadRows>();
+        for (const row of unreadRows) {
+          const acctId = row.gmail_account_id as string;
+          const list = unreadByAccount.get(acctId);
+          if (list) list.push(row);
+          else unreadByAccount.set(acctId, [row]);
+        }
+        for (const [acctId, acctRows] of unreadByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') {
+            totalFailed += acctRows.length;
+            continue;
+          }
+          const result = await markAsReadBulk(acct, acctRows.map((r) => r.gmail_message_id as string));
+          totalUpdated += result.updated;
+          totalFailed += result.failed;
+        }
         const unreadDbIds = unreadRows.map((r) => r.id as string);
-        const readResult = await markAsReadBulk(gmailAccount, unreadGmailIds);
         const { error: readErr } = await serviceClient
           .from('emails')
           .update({ is_read: true })
@@ -281,24 +328,39 @@ export async function POST(request: NextRequest) {
         if (readErr) console.error('[tree-action] DB update is_read failed:', readErr);
         const readActionResult = buildActionResult(
           'mark_read',
-          { affected: readResult.updated, failed: readResult.failed },
+          { affected: totalUpdated, failed: totalFailed },
           readErr ? readErr.message : null,
         );
         return NextResponse.json(readActionResult.body, { status: readActionResult.status });
       }
 
       case 'mark_unread': {
-        if (gmailAccount.granted_scope !== 'gmail.modify') {
-          return NextResponse.json({ error: 'Gmail modify scope required' }, { status: 403 });
-        }
         // Only modify read emails
         const readRows = gmailRows.filter((r) => r.is_read === true);
         if (readRows.length === 0) {
           return NextResponse.json({ success: true, action: 'mark_unread', affected: 0 });
         }
-        const readGmailIds = readRows.map((r) => r.gmail_message_id as string);
+        let totalUpdated = 0;
+        let totalFailed = 0;
+        // Group read rows by account for per-account API calls
+        const readByAccount = new Map<string, typeof readRows>();
+        for (const row of readRows) {
+          const acctId = row.gmail_account_id as string;
+          const list = readByAccount.get(acctId);
+          if (list) list.push(row);
+          else readByAccount.set(acctId, [row]);
+        }
+        for (const [acctId, acctRows] of readByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') {
+            totalFailed += acctRows.length;
+            continue;
+          }
+          const result = await markAsUnreadBulk(acct, acctRows.map((r) => r.gmail_message_id as string));
+          totalUpdated += result.updated;
+          totalFailed += result.failed;
+        }
         const readDbIds = readRows.map((r) => r.id as string);
-        const unreadResult = await markAsUnreadBulk(gmailAccount, readGmailIds);
         const { error: unreadErr } = await serviceClient
           .from('emails')
           .update({ is_read: false })
@@ -306,7 +368,7 @@ export async function POST(request: NextRequest) {
         if (unreadErr) console.error('[tree-action] DB update is_read failed:', unreadErr);
         const unreadActionResult = buildActionResult(
           'mark_unread',
-          { affected: unreadResult.updated, failed: unreadResult.failed },
+          { affected: totalUpdated, failed: totalFailed },
           unreadErr ? unreadErr.message : null,
         );
         return NextResponse.json(unreadActionResult.body, { status: unreadActionResult.status });
@@ -391,79 +453,150 @@ export async function POST(request: NextRequest) {
 
 /**
  * Fast path for bulk actions from the email list — IDs are already known.
- * Fetches emails by ID, then executes the action.
+ * Fetches emails by ID (scoped to user's accounts), then executes the action
+ * with per-account Gmail API calls.
  */
 async function handleDirectIds(
   emailIds: string[],
   action: string,
   newCategory: string | undefined,
-  account: GmailAccount,
+  allAccountIds: string[],
+  accountMap: Map<string, GmailAccount>,
   serviceClient: ReturnType<typeof createServiceClient>,
 ) {
+  // Bug 1 fix: scope query to user's accounts to prevent cross-user access
   const { data: rawRows, error } = await serviceClient
     .from('emails')
-    .select('id, gmail_message_id, label_ids, is_read, is_starred')
-    .in('id', emailIds);
+    .select('id, gmail_message_id, gmail_account_id, label_ids, is_read, is_starred')
+    .in('id', emailIds)
+    .in('gmail_account_id', allAccountIds);
 
   if (error || !rawRows || rawRows.length === 0) {
     return NextResponse.json({ success: true, affected: 0 });
   }
 
-  type Row = { id: string; gmail_message_id: string | null; label_ids: string[] | null; is_read: boolean; is_starred: boolean };
+  type Row = { id: string; gmail_message_id: string | null; gmail_account_id: string; label_ids: string[] | null; is_read: boolean; is_starred: boolean };
   const { valid: rows, invalid: skipped } = partitionByGmailId(rawRows as unknown as Row[]);
   if (rows.length === 0) {
     return NextResponse.json({ success: true, affected: 0, skipped: skipped.length });
   }
 
-  const gmailIds = rows.map((r) => r.gmail_message_id as string);
   const dbIds = rows.map((r) => r.id as string);
+
+  // Bug 2 fix: group emails by account for per-account Gmail API calls
+  const rowsByAccount = new Map<string, Row[]>();
+  for (const row of rows as unknown as Row[]) {
+    const list = rowsByAccount.get(row.gmail_account_id);
+    if (list) list.push(row);
+    else rowsByAccount.set(row.gmail_account_id, [row]);
+  }
 
   try {
     switch (action) {
       case 'trash': {
-        const result = await trashEmails(account, gmailIds);
+        let totalTrashed = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await trashEmails(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalTrashed += result.trashed;
+          totalFailed += result.failed;
+        }
         await Promise.allSettled(
-          rows.map((e) => {
-            const labels = ((e as Row).label_ids ?? []).filter((l) => l !== 'INBOX');
+          (rows as unknown as Row[]).map((e) => {
+            const labels = (e.label_ids ?? []).filter((l) => l !== 'INBOX');
             if (!labels.includes('TRASH')) labels.push('TRASH');
-            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id as string);
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id);
           })
         );
-        return NextResponse.json(buildActionResult('trash', { affected: result.trashed, failed: result.failed }, null).body);
+        return NextResponse.json(buildActionResult('trash', { affected: totalTrashed, failed: totalFailed }, null).body);
       }
       case 'archive': {
-        const result = await archiveEmails(account, gmailIds);
+        let totalArchived = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await archiveEmails(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalArchived += result.archived;
+          totalFailed += result.failed;
+        }
         await Promise.allSettled(
-          rows.map((e) => {
-            const labels = ((e as Row).label_ids ?? []).filter((l) => l !== 'INBOX');
-            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id as string);
+          (rows as unknown as Row[]).map((e) => {
+            const labels = (e.label_ids ?? []).filter((l) => l !== 'INBOX');
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id);
           })
         );
-        return NextResponse.json(buildActionResult('archive', { affected: result.archived, failed: result.failed }, null).body);
+        return NextResponse.json(buildActionResult('archive', { affected: totalArchived, failed: totalFailed }, null).body);
       }
       case 'star': {
-        const result = await starEmails(account, gmailIds);
+        let totalStarred = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await starEmails(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalStarred += result.starred;
+          totalFailed += result.failed;
+        }
         await serviceClient.from('emails').update({ is_starred: true }).in('id', dbIds);
-        return NextResponse.json(buildActionResult('star', { affected: result.starred, failed: result.failed }, null).body);
+        return NextResponse.json(buildActionResult('star', { affected: totalStarred, failed: totalFailed }, null).body);
       }
       case 'unstar': {
-        const result = await unstarEmails(account, gmailIds);
+        let totalUnstarred = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await unstarEmails(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalUnstarred += result.unstarred;
+          totalFailed += result.failed;
+        }
         await serviceClient.from('emails').update({ is_starred: false }).in('id', dbIds);
-        return NextResponse.json(buildActionResult('unstar', { affected: result.unstarred, failed: result.failed }, null).body);
+        return NextResponse.json(buildActionResult('unstar', { affected: totalUnstarred, failed: totalFailed }, null).body);
       }
       case 'mark_read': {
-        const unread = rows.filter((r) => (r as Row).is_read === false);
+        const unread = (rows as unknown as Row[]).filter((r) => r.is_read === false);
         if (unread.length === 0) return NextResponse.json({ success: true, affected: 0 });
-        const result = await markAsReadBulk(account, unread.map((r) => r.gmail_message_id as string));
-        await serviceClient.from('emails').update({ is_read: true }).in('id', unread.map((r) => r.id as string));
-        return NextResponse.json(buildActionResult('mark_read', { affected: result.updated, failed: result.failed }, null).body);
+        let totalUpdated = 0;
+        let totalFailed = 0;
+        const unreadByAcct = new Map<string, Row[]>();
+        for (const r of unread) {
+          const list = unreadByAcct.get(r.gmail_account_id);
+          if (list) list.push(r);
+          else unreadByAcct.set(r.gmail_account_id, [r]);
+        }
+        for (const [acctId, acctRows] of unreadByAcct) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await markAsReadBulk(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalUpdated += result.updated;
+          totalFailed += result.failed;
+        }
+        await serviceClient.from('emails').update({ is_read: true }).in('id', unread.map((r) => r.id));
+        return NextResponse.json(buildActionResult('mark_read', { affected: totalUpdated, failed: totalFailed }, null).body);
       }
       case 'mark_unread': {
-        const read = rows.filter((r) => (r as Row).is_read === true);
+        const read = (rows as unknown as Row[]).filter((r) => r.is_read === true);
         if (read.length === 0) return NextResponse.json({ success: true, affected: 0 });
-        const result = await markAsUnreadBulk(account, read.map((r) => r.gmail_message_id as string));
-        await serviceClient.from('emails').update({ is_read: false }).in('id', read.map((r) => r.id as string));
-        return NextResponse.json(buildActionResult('mark_unread', { affected: result.updated, failed: result.failed }, null).body);
+        let totalUpdated = 0;
+        let totalFailed = 0;
+        const readByAcct = new Map<string, Row[]>();
+        for (const r of read) {
+          const list = readByAcct.get(r.gmail_account_id);
+          if (list) list.push(r);
+          else readByAcct.set(r.gmail_account_id, [r]);
+        }
+        for (const [acctId, acctRows] of readByAcct) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await markAsUnreadBulk(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalUpdated += result.updated;
+          totalFailed += result.failed;
+        }
+        await serviceClient.from('emails').update({ is_read: false }).in('id', read.map((r) => r.id));
+        return NextResponse.json(buildActionResult('mark_unread', { affected: totalUpdated, failed: totalFailed }, null).body);
       }
       default:
         return NextResponse.json({ error: `Unsupported bulk action: ${action}` }, { status: 400 });

@@ -23,10 +23,20 @@ interface BoardViewProps {
   groupByDimension: DimensionKey;
   onSelectEmail: (emailId: string) => void;
   onEmailMoved: () => void;
+  /** Map of gmail_account_id -> hex color for account dot indicators */
+  accountColorMap?: Map<string, string>;
+  /** Whether to show account dots (only when multiple accounts) */
+  showAccountDot?: boolean;
+  /** Map of gmail_account_id -> display name (for account dimension grouping) */
+  accountDisplayMap?: Map<string, string>;
 }
 
 /** Extract the grouping value from an email for a given dimension */
-function getGroupValue(email: EmailWithCategory, dimension: DimensionKey): string {
+function getGroupValue(
+  email: EmailWithCategory,
+  dimension: DimensionKey,
+  accountDisplayMap?: Map<string, string>,
+): string {
   switch (dimension) {
     case 'category':
       return email.category ?? 'Uncategorized';
@@ -56,6 +66,8 @@ function getGroupValue(email: EmailWithCategory, dimension: DimensionKey): strin
       const weekNum = Math.ceil((daysSinceJan4 + jan4.getDay() + 1) / 7);
       return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
     }
+    case 'account':
+      return accountDisplayMap?.get(email.gmail_account_id) ?? email.gmail_account_id ?? 'Unknown';
     default:
       return 'Unknown';
   }
@@ -64,12 +76,13 @@ function getGroupValue(email: EmailWithCategory, dimension: DimensionKey): strin
 /** Group emails by dimension, sorted by importance_score DESC within each group */
 function groupEmails(
   emails: EmailWithCategory[],
-  dimension: DimensionKey
+  dimension: DimensionKey,
+  accountDisplayMap?: Map<string, string>,
 ): Map<string, EmailWithCategory[]> {
   const groups = new Map<string, EmailWithCategory[]>();
 
   for (const email of emails) {
-    const key = getGroupValue(email, dimension);
+    const key = getGroupValue(email, dimension, accountDisplayMap);
     const list = groups.get(key);
     if (list) {
       list.push(email);
@@ -107,13 +120,16 @@ export function BoardView({
   groupByDimension,
   onSelectEmail,
   onEmailMoved,
+  accountColorMap,
+  showAccountDot,
+  accountDisplayMap,
 }: BoardViewProps) {
   // Mutable ref to track the initial grouped state for revert-on-error
   const initialGroupsRef = useRef<Map<string, EmailWithCategory[]> | null>(null);
 
   // Local state: grouped columns (mutated optimistically on drag)
   const [columns, setColumns] = useState<Map<string, EmailWithCategory[]>>(() =>
-    groupEmails(emails, groupByDimension)
+    groupEmails(emails, groupByDimension, accountDisplayMap)
   );
 
   // Track the actively dragged email for DragOverlay
@@ -124,9 +140,9 @@ export function BoardView({
   // blowing away optimistic column state mid-drag.
   useEffect(() => {
     if (!activeEmail) {
-      setColumns(groupEmails(emails, groupByDimension));
+      setColumns(groupEmails(emails, groupByDimension, accountDisplayMap));
     }
-  }, [emails, groupByDimension, activeEmail]);
+  }, [emails, groupByDimension, activeEmail, accountDisplayMap]);
 
   // Sorted column keys — keep a stable order (alphabetical, but with known categories first)
   const columnKeys = useMemo(() => {
@@ -335,6 +351,8 @@ export function BoardView({
             groupKey={key}
             emails={columns.get(key) ?? []}
             onSelectEmail={onSelectEmail}
+            accountColorMap={accountColorMap}
+            showAccountDot={showAccountDot}
           />
         ))}
       </div>
@@ -347,6 +365,7 @@ export function BoardView({
               email={activeEmail}
               onSelect={() => {}}
               overlay
+              accountColor={showAccountDot ? accountColorMap?.get(activeEmail.gmail_account_id) : undefined}
             />
           </div>
         ) : null}

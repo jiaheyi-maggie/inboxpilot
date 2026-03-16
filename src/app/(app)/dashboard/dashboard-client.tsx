@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { ViewProvider, useView } from '@/contexts/view-context';
@@ -27,12 +27,16 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { ViewConfig, GmailAccount, TreeNode } from '@/types';
 
+/** Minimal account info passed from server to client */
+export type AccountInfo = Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope' | 'color' | 'display_name'>;
+
 interface DashboardClientProps {
   viewConfig: ViewConfig;
-  account: Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope'> | null;
+  account: AccountInfo | null;
+  accounts: AccountInfo[];
 }
 
-export function DashboardClient({ viewConfig, account }: DashboardClientProps) {
+export function DashboardClient({ viewConfig, account, accounts }: DashboardClientProps) {
   const router = useRouter();
   const autoSyncTriggered = useRef(false);
   const [externalRefreshKey, setExternalRefreshKey] = useState(0);
@@ -64,15 +68,33 @@ export function DashboardClient({ viewConfig, account }: DashboardClientProps) {
 
   return (
     <ViewProvider key={viewConfig.id} initialView={viewConfig} externalRefreshKey={externalRefreshKey}>
-      <DashboardLayout />
+      <DashboardLayout accounts={accounts} />
     </ViewProvider>
   );
 }
 
 // ── Inner layout component that can use useView() ──
 
-function DashboardLayout() {
-  const { refreshKey, triggerRefresh, viewConfig, selectedCategory } = useView();
+function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
+  const { refreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId } = useView();
+
+  // Build account color map: gmail_account_id -> color (stable across renders)
+  const accountColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accounts) {
+      map.set(a.id, a.color ?? '#3B82F6');
+    }
+    return map;
+  }, [accounts]);
+
+  // Build account display map: gmail_account_id -> display name (for board view grouping)
+  const accountDisplayMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accounts) {
+      map.set(a.id, a.display_name ?? a.email);
+    }
+    return map;
+  }, [accounts]);
 
   // Chat sidebar state
   const [chatOpen, setChatOpen] = useState(false);
@@ -107,6 +129,10 @@ function DashboardLayout() {
         level: '0',
         configId: viewConfig.id,
       });
+      // Apply account filter for per-inbox category counts
+      if (selectedAccountId) {
+        params.set('filter.account', selectedAccountId);
+      }
       const res = await fetch(`/api/emails?${params}`);
       if (!res.ok) {
         setSidebarError(true);
@@ -121,7 +147,7 @@ function DashboardLayout() {
     } finally {
       if (showSkeleton) setSidebarLoading(false);
     }
-  }, [viewConfig.id]);
+  }, [viewConfig.id, selectedAccountId]);
 
   // Initial load
   useEffect(() => {
@@ -204,6 +230,7 @@ function DashboardLayout() {
       loading={sidebarLoading}
       fetchError={sidebarError}
       onRetry={() => fetchRootNodes(true)}
+      accounts={accounts}
     />
   );
 
@@ -231,7 +258,7 @@ function DashboardLayout() {
       </div>
       {/* Active view content */}
       <ScrollArea className="flex-1">
-        <ActiveViewRouter />
+        <ActiveViewRouter accountColorMap={accountColorMap} showAccountDot={accounts.length > 1} accountDisplayMap={accountDisplayMap} />
       </ScrollArea>
     </div>
   );

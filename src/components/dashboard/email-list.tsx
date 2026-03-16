@@ -45,9 +45,13 @@ interface EmailListProps {
   onEmailMoved?: () => void;
   /** When set, updates that invalidate group membership are treated as removals (e.g. unstar in Starred group) */
   systemGroup?: SystemGroupKey | null;
+  /** Map of gmail_account_id -> hex color for account dot indicators */
+  accountColorMap?: Map<string, string>;
+  /** Whether to show account dots (only when multiple accounts) */
+  showAccountDot?: boolean;
 }
 
-export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps) {
+export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, showAccountDot }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -290,6 +294,7 @@ export function EmailList({ emails, onEmailMoved, systemGroup }: EmailListProps)
             onRemoved={handleEmailRemoved}
             onUpdated={handleEmailUpdated}
             onCategoryChanged={handleCategoryChanged}
+            accountColor={showAccountDot ? accountColorMap?.get(email.gmail_account_id) : undefined}
           />
         ))}
       </div>
@@ -305,6 +310,7 @@ function EmailRow({
   onRemoved,
   onUpdated,
   onCategoryChanged,
+  accountColor,
 }: {
   email: EmailWithCategory;
   checked: boolean;
@@ -313,6 +319,7 @@ function EmailRow({
   onRemoved: (id: string) => void;
   onUpdated: (id: string, updates: Partial<EmailWithCategory>) => void;
   onCategoryChanged: (id: string, category: string) => void;
+  accountColor?: string;
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showRuleDialog, setShowRuleDialog] = useState(false);
@@ -441,6 +448,13 @@ function EmailRow({
               <div className="flex-1 min-w-0">
                 {/* Sender + date row */}
                 <div className="flex items-center gap-2">
+                  {accountColor && (
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: accountColor }}
+                      aria-hidden="true"
+                    />
+                  )}
                   <span
                     className={`text-sm truncate ${
                       !email.is_read ? 'font-bold text-foreground' : 'font-normal text-muted-foreground'

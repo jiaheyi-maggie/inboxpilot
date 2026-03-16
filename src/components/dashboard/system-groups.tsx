@@ -14,6 +14,8 @@ interface SystemGroupsProps {
   selectedGroup: SystemGroupKey | null;
   onSelectGroup: (group: SystemGroupKey) => void;
   refreshKey?: number;
+  /** When set, only show counts for this account */
+  selectedAccountId?: string | null;
 }
 
 const GROUP_CONFIG: { key: SystemGroupKey; label: string; icon: typeof Star }[] = [
@@ -22,19 +24,24 @@ const GROUP_CONFIG: { key: SystemGroupKey; label: string; icon: typeof Star }[] 
   { key: 'trash', label: 'Trash', icon: Trash2 },
 ];
 
-export function SystemGroups({ selectedGroup, onSelectGroup, refreshKey }: SystemGroupsProps) {
+export function SystemGroups({ selectedGroup, onSelectGroup, refreshKey, selectedAccountId }: SystemGroupsProps) {
   const [counts, setCounts] = useState<SystemGroupCounts>({ starred: 0, archived: 0, trash: 0 });
 
   const fetchCounts = useCallback(async () => {
+    setCounts({ starred: 0, archived: 0, trash: 0 }); // reset stale counts
     try {
-      const res = await fetch('/api/emails/system-groups');
+      const url = new URL('/api/emails/system-groups', window.location.origin);
+      if (selectedAccountId) {
+        url.searchParams.set('accountId', selectedAccountId);
+      }
+      const res = await fetch(url.toString());
       if (!res.ok) return;
       const data = await res.json();
       setCounts(data.groups);
     } catch {
       // Silent fail — counts are non-critical
     }
-  }, []);
+  }, [selectedAccountId]);
 
   useEffect(() => {
     fetchCounts();

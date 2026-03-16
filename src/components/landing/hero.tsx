@@ -1,28 +1,51 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import { FolderTree, Sparkles, Clock } from 'lucide-react';
+import { toast } from 'sonner';
 
-export function LandingHero() {
+export function LandingHero({ error }: { error?: string }) {
   const [loading, setLoading] = useState(false);
 
+  // Show auth error from redirect (e.g., ?error=auth_failed)
+  useEffect(() => {
+    if (error === 'auth_failed') {
+      toast.error('Authentication failed. Please try again.');
+    } else if (error === 'no_code') {
+      toast.error('Authorization was cancelled. Please try again.');
+    }
+  }, [error]);
+
   const handleSignIn = async () => {
+    if (loading) return; // guard against double-clicks
     setLoading(true);
-    const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/callback`,
-        scopes: 'https://www.googleapis.com/auth/gmail.modify',
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/callback`,
+          scopes: 'https://www.googleapis.com/auth/gmail.modify',
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account consent',
+          },
         },
-      },
-    });
+      });
+      if (error) {
+        console.error('[auth] signInWithOAuth failed:', error.message);
+        toast.error('Could not connect to Google. Please try again.');
+        setLoading(false);
+      }
+      // If no error, browser is redirecting — don't reset loading
+    } catch (err) {
+      console.error('[auth] signInWithOAuth exception:', err);
+      toast.error('Something went wrong. Please try again.');
+      setLoading(false);
+    }
   };
 
   return (

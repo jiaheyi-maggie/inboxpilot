@@ -361,6 +361,7 @@ function getFieldValue(
     case 'has_attachment': return email.has_attachment;
     case 'is_read': return email.is_read;
     case 'is_starred': return email.is_starred;
+    case 'account': return email.gmail_account_id;
     case 'label': return email.label_ids?.join(',') ?? '';
     default: return null;
   }

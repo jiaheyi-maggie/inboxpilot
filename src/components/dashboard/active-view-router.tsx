@@ -9,7 +9,16 @@ import { TreeView } from './tree-view';
 import { BoardView } from './board-view';
 import type { EmailWithCategory, TreeNode, SystemGroupKey, DimensionKey } from '@/types';
 
-export function ActiveViewRouter() {
+interface ActiveViewRouterProps {
+  /** Map of gmail_account_id -> hex color (for account dot indicators) */
+  accountColorMap?: Map<string, string>;
+  /** Whether to show account dots on emails (only when multiple accounts) */
+  showAccountDot?: boolean;
+  /** Map of gmail_account_id -> display name (for account dimension grouping) */
+  accountDisplayMap?: Map<string, string>;
+}
+
+export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDisplayMap }: ActiveViewRouterProps) {
   const {
     viewType,
     filters,
@@ -19,6 +28,7 @@ export function ActiveViewRouter() {
     selectedCategory,
     selectedSystemGroup,
     setSelectedSystemGroup,
+    selectedAccountId,
     selectedEmailId,
     setSelectedEmailId,
     setSelectedCategory,
@@ -62,13 +72,18 @@ export function ActiveViewRouter() {
     if (selectedSystemGroup) {
       setLoading(true);
       try {
-        const res = await fetch(`/api/emails/system-groups/${selectedSystemGroup}?limit=100`);
+        const sgUrl = new URL(`/api/emails/system-groups/${selectedSystemGroup}`, window.location.origin);
+        sgUrl.searchParams.set('limit', '100');
+        if (selectedAccountId) {
+          sgUrl.searchParams.set('accountId', selectedAccountId);
+        }
+        const res = await fetch(sgUrl.toString());
         if (!res.ok) {
           setEmails([]);
           return;
         }
         const data = await res.json();
-        const normalized: EmailWithCategory[] = (data.emails ?? []).map(
+        let normalized: EmailWithCategory[] = (data.emails ?? []).map(
           (row: Record<string, unknown>) => {
             const cat = row.email_categories as
               | Record<string, unknown>
@@ -119,6 +134,11 @@ export function ActiveViewRouter() {
         }
       }
 
+      // Apply account filter (multi-inbox)
+      if (selectedAccountId) {
+        params.set('filter.account', selectedAccountId);
+      }
+
       // Apply toolbar filters as query params
       for (const f of filters) {
         params.set(`filter.${f.field}`, String(f.value));
@@ -150,7 +170,7 @@ export function ActiveViewRouter() {
     } finally {
       setLoading(false);
     }
-  }, [viewType, filters, sort, groupBy, selectedCategory, selectedSystemGroup, viewConfig.id]);
+  }, [viewType, filters, sort, groupBy, selectedCategory, selectedSystemGroup, selectedAccountId, viewConfig.id]);
 
   useEffect(() => {
     fetchData();
@@ -264,6 +284,9 @@ export function ActiveViewRouter() {
             groupByDimension={boardDimension}
             onSelectEmail={handleBoardSelectEmail}
             onEmailMoved={handleEmailMoved}
+            accountColorMap={accountColorMap}
+            showAccountDot={showAccountDot}
+            accountDisplayMap={accountDisplayMap}
           />
         )}
       </div>
@@ -336,6 +359,8 @@ export function ActiveViewRouter() {
           emails={emails}
           onEmailMoved={handleEmailMoved}
           systemGroup={selectedSystemGroup}
+          accountColorMap={accountColorMap}
+          showAccountDot={showAccountDot}
         />
       )}
     </div>

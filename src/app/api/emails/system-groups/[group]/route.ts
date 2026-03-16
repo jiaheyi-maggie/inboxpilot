@@ -8,7 +8,7 @@ const VALID_GROUPS: SystemGroupKey[] = ['starred', 'archived', 'trash'];
 
 /**
  * GET /api/emails/system-groups/[group] — list emails in a system group.
- * Supports ?limit=N&offset=N for pagination.
+ * Supports ?limit=N&offset=N for pagination and ?accountId=UUID for account filtering.
  */
 export async function GET(request: NextRequest, { params }: Params) {
   const { group } = await params;
@@ -28,15 +28,26 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   const serviceClient = createServiceClient();
 
-  const { data: account } = await serviceClient
+  const { data: accounts } = await serviceClient
     .from('gmail_accounts')
     .select('id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .eq('user_id', user.id);
 
-  if (!account) {
+  if (!accounts || accounts.length === 0) {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
+  }
+
+  const allAccountIds = accounts.map((a) => a.id);
+
+  // Optional: filter to a specific account
+  const accountIdParam = request.nextUrl.searchParams.get('accountId');
+  let accountIds = allAccountIds;
+
+  if (accountIdParam) {
+    if (!allAccountIds.includes(accountIdParam)) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 403 });
+    }
+    accountIds = [accountIdParam];
   }
 
   const searchParams = request.nextUrl.searchParams;
@@ -46,7 +57,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   let query = serviceClient
     .from('emails')
     .select('*, email_categories(*)')
-    .eq('gmail_account_id', account.id)
+    .in('gmail_account_id', accountIds)
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);
 

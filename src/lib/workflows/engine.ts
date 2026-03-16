@@ -313,6 +313,8 @@ function getFieldValue(
       return email.is_starred;
     case 'label':
       return email.label_ids?.join(',') ?? '';
+    case 'account':
+      return email.gmail_account_id;
     default:
       return null;
   }
@@ -408,6 +410,7 @@ async function executeAction(
         {
           refinementPrompt: action.config?.refinementPrompt,
           sourceCategory: action.config?.sourceCategory,
+          gmailAccountId: account.id,
         },
       );
       break;

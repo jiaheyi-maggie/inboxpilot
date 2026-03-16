@@ -19,9 +19,11 @@ interface BoardCardProps {
   onSelect: (emailId: string) => void;
   /** True when this card is being rendered inside a DragOverlay (clone, not in-place) */
   overlay?: boolean;
+  /** Account color for multi-inbox dot indicator */
+  accountColor?: string;
 }
 
-export function BoardCard({ email, onSelect, overlay }: BoardCardProps) {
+export function BoardCard({ email, onSelect, overlay, accountColor }: BoardCardProps) {
   const {
     attributes,
     listeners,
@@ -64,6 +66,13 @@ export function BoardCard({ email, onSelect, overlay }: BoardCardProps) {
     >
       {/* Sender + date row */}
       <div className="flex items-center gap-1.5 min-w-0">
+        {accountColor && (
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ backgroundColor: accountColor }}
+            aria-hidden="true"
+          />
+        )}
         <span className={`text-xs truncate flex-1 ${!email.is_read ? 'font-bold text-foreground' : 'text-muted-foreground'}`}>
           {email.sender_name || email.sender_email || 'Unknown'}
         </span>

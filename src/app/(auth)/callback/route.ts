@@ -41,6 +41,7 @@ export async function GET(request: Request) {
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !data.session) {
+    console.error('[auth/callback] exchangeCodeForSession failed:', error?.message ?? 'no session');
     return NextResponse.redirect(`${origin}/?error=auth_failed`);
   }
 
@@ -71,6 +72,18 @@ export async function GET(request: Request) {
       // Fall back to gmail.readonly if tokeninfo check fails
     }
 
+    // Determine color for this account based on how many the user already has
+    const ACCOUNT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
+    const { data: existingAccounts } = await serviceClient
+      .from('gmail_accounts')
+      .select('id, email')
+      .eq('user_id', user.id);
+    const existingCount = existingAccounts?.length ?? 0;
+    const isNewAccount = !existingAccounts?.some((a) => a.email === email);
+    const accountColor = isNewAccount
+      ? ACCOUNT_COLORS[existingCount % ACCOUNT_COLORS.length]
+      : undefined; // don't overwrite color on re-auth
+
     // Build upsert payload — only include refresh_token if Google actually
     // provided one (Google only sends refresh_token on first authorization,
     // not on subsequent re-auths). Setting it to null would wipe the stored token.
@@ -88,6 +101,14 @@ export async function GET(request: Request) {
       upsertPayload.refresh_token_encrypted = encrypt(providerRefreshToken);
     }
 
+    // Set display_name and color for new accounts
+    if (isNewAccount) {
+      upsertPayload.display_name = email.split('@')[0];
+      if (accountColor) {
+        upsertPayload.color = accountColor;
+      }
+    }
+
     const { error: upsertError } = await serviceClient
       .from('gmail_accounts')
       .upsert(upsertPayload, { onConflict: 'user_id,email' });
@@ -97,15 +118,25 @@ export async function GET(request: Request) {
     }
 
     // Check if first-time user — redirect to setup wizard
-    const { data: existingConfig } = await serviceClient
-      .from('grouping_configs')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .limit(1)
-      .single();
+    // Check both view_configs (new system) and grouping_configs (legacy)
+    const [{ data: existingViewConfig }, { data: existingGroupConfig }] = await Promise.all([
+      serviceClient
+        .from('view_configs')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle(),
+      serviceClient
+        .from('grouping_configs')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    if (!existingConfig) {
+    if (!existingViewConfig && !existingGroupConfig) {
       return redirectWithCookies(`${origin}/setup`, pendingCookies);
     }
   }

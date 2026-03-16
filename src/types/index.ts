@@ -9,6 +9,8 @@ export interface GmailAccount {
   last_sync_at: string | null;
   sync_enabled: boolean;
   granted_scope: string;
+  color: string;
+  display_name: string | null;
   created_at: string;
 }
 
@@ -96,7 +98,8 @@ export type DimensionKey =
   | 'date_week'
   | 'importance'
   | 'has_attachment'
-  | 'is_read';
+  | 'is_read'
+  | 'account';
 
 export interface DimensionDef {
   key: DimensionKey;
@@ -237,6 +240,7 @@ export interface UserCategory {
   color: string | null;
   sort_order: number;
   is_default: boolean;
+  gmail_account_id: string | null;
   view_mode_override: ViewMode | null;
   created_at: string;
 }
@@ -270,7 +274,8 @@ export type WorkflowConditionField =
   | 'has_attachment'
   | 'is_read'
   | 'is_starred'
-  | 'label';
+  | 'label'
+  | 'account';
 
 export type WorkflowConditionOperator =
   | 'equals'

@@ -2,7 +2,18 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LandingHero } from '@/components/landing/hero';
 
-export default async function LandingPage() {
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; code?: string }>;
+}) {
+  const { error, code } = await searchParams;
+
+  // If Supabase sent the OAuth code to / instead of /callback, forward it
+  if (code) {
+    redirect(`/callback?code=${encodeURIComponent(code)}`);
+  }
+
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -12,5 +23,5 @@ export default async function LandingPage() {
     redirect('/dashboard');
   }
 
-  return <LandingHero />;
+  return <LandingHero error={error} />;
 }

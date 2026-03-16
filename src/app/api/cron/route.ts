@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
         totalErrors += emails.length;
         continue;
       }
-      const result = await categorizeEmails(emails, userId);
+      const result = await categorizeEmails(emails, userId, { gmailAccountId: accountId });
       totalCategorized += result.categorized;
       totalErrors += result.errors;
     }
@@ -161,55 +161,55 @@ export async function POST(request: NextRequest) {
       const timeoutMinutes = (trigger?.data as TriggerData)?.config?.timeoutMinutes ?? 60;
       const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
 
-      // Find unread emails older than timeout
-      const { data: account } = await serviceClient
+      // Find ALL user accounts (not just the first) for unread email scanning
+      const { data: userAccounts } = await serviceClient
         .from('gmail_accounts')
         .select('*')
-        .eq('user_id', wf.user_id)
-        .limit(1)
-        .single();
+        .eq('user_id', wf.user_id);
 
-      if (!account) continue;
+      if (!userAccounts || userAccounts.length === 0) continue;
 
-      const { data: unreadEmails } = await serviceClient
-        .from('emails')
-        .select('*, email_categories(*)')
-        .eq('gmail_account_id', account.id)
-        .eq('is_read', false)
-        .lt('received_at', cutoff)
-        .limit(50);
+      for (const account of userAccounts) {
+        const { data: unreadEmails } = await serviceClient
+          .from('emails')
+          .select('*, email_categories(*)')
+          .eq('gmail_account_id', account.id)
+          .eq('is_read', false)
+          .lt('received_at', cutoff)
+          .limit(50);
 
-      if (!unreadEmails || unreadEmails.length === 0) continue;
+        if (!unreadEmails || unreadEmails.length === 0) continue;
 
-      // Deduplication: skip emails that already have a run for this workflow
-      const emailIds = unreadEmails.map((e) => e.id);
-      const { data: existingRuns } = await serviceClient
-        .from('workflow_runs')
-        .select('email_id')
-        .eq('workflow_id', wf.id)
-        .in('email_id', emailIds);
+        // Deduplication: skip emails that already have a run for this workflow
+        const emailIds = unreadEmails.map((e) => e.id);
+        const { data: existingRuns } = await serviceClient
+          .from('workflow_runs')
+          .select('email_id')
+          .eq('workflow_id', wf.id)
+          .in('email_id', emailIds);
 
-      const alreadyProcessed = new Set(
-        (existingRuns ?? []).map((r) => r.email_id)
-      );
+        const alreadyProcessed = new Set(
+          (existingRuns ?? []).map((r) => r.email_id)
+        );
 
-      for (const emailRow of unreadEmails) {
-        if (alreadyProcessed.has(emailRow.id)) continue;
+        for (const emailRow of unreadEmails) {
+          if (alreadyProcessed.has(emailRow.id)) continue;
 
-        const cat = emailRow.email_categories;
-        const catObj = Array.isArray(cat) ? cat[0] : cat;
-        const emailWithCat = {
-          ...emailRow,
-          email_categories: undefined,
-          category: (catObj as Record<string, unknown>)?.category as string ?? null,
-          topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
-          priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
-          confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
-          importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
-          importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
-        };
-        await runWorkflowsForEmail(emailWithCat, 'unread_timeout', account);
-        totalProcessed++;
+          const cat = emailRow.email_categories;
+          const catObj = Array.isArray(cat) ? cat[0] : cat;
+          const emailWithCat = {
+            ...emailRow,
+            email_categories: undefined,
+            category: (catObj as Record<string, unknown>)?.category as string ?? null,
+            topic: (catObj as Record<string, unknown>)?.topic as string ?? null,
+            priority: (catObj as Record<string, unknown>)?.priority as string ?? null,
+            confidence: (catObj as Record<string, unknown>)?.confidence as number ?? null,
+            importance_score: (catObj as Record<string, unknown>)?.importance_score as number ?? null,
+            importance_label: (catObj as Record<string, unknown>)?.importance_label as string ?? null,
+          };
+          await runWorkflowsForEmail(emailWithCat, 'unread_timeout', account);
+          totalProcessed++;
+        }
       }
     }
 
