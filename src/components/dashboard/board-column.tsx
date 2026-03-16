@@ -3,8 +3,11 @@
 import { useDroppable } from '@dnd-kit/core';
 import {
   SortableContext,
+  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical } from 'lucide-react';
 import { BoardCard } from './board-card';
 import { getCategoryColor } from '@/lib/category-colors';
 import type { EmailWithCategory } from '@/types';
@@ -17,26 +20,66 @@ interface BoardColumnProps {
   accountColorMap?: Map<string, string>;
   /** Whether to show account dots (only when multiple accounts) */
   showAccountDot?: boolean;
+  /** Whether this column can be dragged to reorder (only for category dimension) */
+  columnDragEnabled?: boolean;
 }
 
-export function BoardColumn({ groupKey, emails, onSelectEmail, accountColorMap, showAccountDot }: BoardColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({
+export function BoardColumn({ groupKey, emails, onSelectEmail, accountColorMap, showAccountDot, columnDragEnabled }: BoardColumnProps) {
+  // Droppable: allows email cards to be dropped into this column's card area.
+  // Uses a distinct ID from the sortable column to avoid dnd-kit ID collision.
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: `card-drop:${groupKey}`,
+    data: { type: 'card-drop', groupKey },
+  });
+
+  // Sortable: allows the column itself to be reordered via its drag handle
+  const {
+    attributes: sortableAttributes,
+    listeners: sortableListeners,
+    setNodeRef: setSortableRef,
+    transform,
+    transition,
+    isDragging: isColumnDragging,
+  } = useSortable({
     id: `column:${groupKey}`,
     data: { type: 'column', groupKey },
+    disabled: !columnDragEnabled,
   });
+
+  const columnStyle = columnDragEnabled
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isColumnDragging ? 0.5 : 1,
+      }
+    : undefined;
 
   const colors = getCategoryColor(groupKey);
   const emailIds = emails.map((e) => e.id);
 
   return (
     <div
+      ref={setSortableRef}
+      style={columnStyle}
       className={`flex flex-col rounded-xl bg-muted/40 border border-border min-w-[280px] w-[300px] flex-shrink-0
         transition-[border-color,background-color] duration-150
         ${isOver ? 'border-primary/50 bg-primary/5' : ''}
+        ${isColumnDragging ? 'z-50 shadow-xl ring-2 ring-primary/20' : ''}
       `}
     >
       {/* Column header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
+        {columnDragEnabled && (
+          <button
+            type="button"
+            className="flex-shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground transition-colors -ml-1"
+            aria-label={`Drag to reorder ${groupKey} column`}
+            {...sortableAttributes}
+            {...sortableListeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        )}
         <span
           className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
           style={{ backgroundColor: colors.text }}
@@ -51,7 +94,7 @@ export function BoardColumn({ groupKey, emails, onSelectEmail, accountColorMap, 
 
       {/* Scrollable card list */}
       <div
-        ref={setNodeRef}
+        ref={setDroppableRef}
         className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[120px]"
         style={{ maxHeight: 'calc(100vh - 200px)' }}
       >
