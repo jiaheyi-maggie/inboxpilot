@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { Loader2, Check, X, Pencil, Mail, Info } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2, Check, X, Pencil, Mail, Info, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { useSearchParams } from 'next/navigation';
 import { CategoryManager } from '@/components/settings/category-manager';
 
 /** Preset colors for account color picker. */
@@ -41,6 +42,28 @@ export function SettingsClient({
   const [autoCategorize, setAutoCategorize] = useState(initialAutoCategorizeUnread);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [accounts, setAccounts] = useState(initialAccounts);
+  const searchParams = useSearchParams();
+
+  // Show toast for connect-account results from OAuth callback redirect
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+    const email = searchParams.get('email');
+
+    if (success === 'account_connected') {
+      toast.success(`Connected ${email ?? 'account'}`, {
+        description: 'Gmail account linked. Sync to fetch emails.',
+      });
+    } else if (success === 'account_refreshed') {
+      toast.info(`Refreshed ${email ?? 'account'}`, {
+        description: 'Gmail tokens updated.',
+      });
+    } else if (error === 'oauth_cancelled') {
+      toast.error('Account connection cancelled');
+    } else if (error) {
+      toast.error(`Failed to connect account: ${error}`);
+    }
+  }, [searchParams]);
 
   const handleToggleAutoCategorize = useCallback(async () => {
     const newValue = !autoCategorize;
@@ -63,8 +86,6 @@ export function SettingsClient({
     setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
   }, []);
 
-  const showAccountsSection = accounts.length > 1;
-
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-8">
       <div>
@@ -81,16 +102,14 @@ export function SettingsClient({
         </p>
       </div>
 
-      {/* Accounts section (only shown for multi-account users) */}
-      {showAccountsSection && (
-        <div>
-          <h2 className="text-sm font-semibold mb-1">Accounts</h2>
-          <p className="text-xs text-muted-foreground mb-3">
-            Manage your connected Gmail accounts. Customize display names and colors.
-          </p>
-          <AccountManager accounts={accounts} onAccountUpdated={handleAccountUpdated} />
-        </div>
-      )}
+      {/* Accounts section — always shown */}
+      <div>
+        <h2 className="text-sm font-semibold mb-1">Connected Accounts</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          Manage your Gmail accounts. Connect multiple inboxes to see them in a unified view.
+        </p>
+        <AccountManager accounts={accounts} onAccountUpdated={handleAccountUpdated} />
+      </div>
 
       {/* Categories section */}
       <div>
@@ -146,6 +165,14 @@ interface AccountManagerProps {
 }
 
 function AccountManager({ accounts, onAccountUpdated }: AccountManagerProps) {
+  const [connecting, setConnecting] = useState(false);
+
+  const handleConnectAccount = useCallback(() => {
+    setConnecting(true);
+    // Redirect to the server-side Google OAuth flow
+    window.location.href = '/api/accounts/connect';
+  }, []);
+
   return (
     <div className="space-y-3">
       <div className="border border-border rounded-lg divide-y divide-border">
@@ -158,11 +185,26 @@ function AccountManager({ accounts, onAccountUpdated }: AccountManagerProps) {
         ))}
       </div>
 
-      {/* Note about adding more accounts */}
+      {/* Connect another Gmail account */}
+      <button
+        onClick={handleConnectAccount}
+        disabled={connecting}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-border
+          text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/50
+          transition-colors disabled:opacity-50"
+      >
+        {connecting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Plus className="h-4 w-4" />
+        )}
+        {connecting ? 'Connecting...' : 'Connect Another Gmail'}
+      </button>
+
       <div className="flex items-start gap-2 px-1">
         <Info className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
-          To connect another Gmail account, sign out and sign in with that account, then sign back in with your primary account. Each sign-in links the Gmail to your InboxPilot profile.
+          Each connected Gmail is synced independently. Your primary login stays the same.
         </p>
       </div>
     </div>
