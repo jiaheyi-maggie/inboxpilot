@@ -1,13 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Folder, AlertCircle } from 'lucide-react';
+import { Folder, AlertCircle, Mail } from 'lucide-react';
 import { UnreadSection } from './unread-section';
 import { SystemGroups } from './system-groups';
 import { CategoryTeachInput } from './category-teach-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useView } from '@/contexts/view-context';
-import type { Email, EmailWithCategory, TreeNode, UserCategory } from '@/types';
+import type { Email, EmailWithCategory, TreeNode, UserCategory, GmailAccount } from '@/types';
+
+/** Minimal account info passed from server */
+type AccountInfo = Pick<GmailAccount, 'id' | 'email' | 'last_sync_at' | 'sync_enabled' | 'granted_scope' | 'color' | 'display_name'>;
 
 function TreeSkeleton() {
   return (
@@ -20,6 +23,18 @@ function TreeSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+// ── Account dot indicator ──
+
+function AccountDot({ color, size = 8 }: { color: string; size?: number }) {
+  return (
+    <span
+      className="inline-block rounded-full flex-shrink-0"
+      style={{ width: size, height: size, backgroundColor: color }}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -86,14 +101,18 @@ interface SidebarProps {
   loading: boolean;
   fetchError: boolean;
   onRetry: () => void;
+  /** All connected Gmail accounts (for multi-inbox support) */
+  accounts: AccountInfo[];
 }
 
-export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProps) {
+export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: SidebarProps) {
   const {
     selectedCategory,
     setSelectedCategory,
     selectedSystemGroup,
     setSelectedSystemGroup,
+    selectedAccountId,
+    setSelectedAccountId,
     setSelectedEmailId,
     refreshKey,
     triggerRefresh,
@@ -156,6 +175,19 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProp
     [selectedSystemGroup, setSelectedSystemGroup]
   );
 
+  const handleSelectAccount = useCallback(
+    (accountId: string) => {
+      if (selectedAccountId === accountId) {
+        setSelectedAccountId(null); // toggle off = unified view
+      } else {
+        setSelectedAccountId(accountId);
+      }
+    },
+    [selectedAccountId, setSelectedAccountId]
+  );
+
+  const showAccountsSection = accounts.length > 1;
+
   return (
     <div className="flex flex-col h-full">
       {/* Unread section pinned at top */}
@@ -163,6 +195,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProp
         onEmailRead={handleEmailsChanged}
         onSelectEmail={handleUnreadEmailSelected}
         refreshKey={refreshKey}
+        selectedAccountId={selectedAccountId}
       />
 
       {/* System groups: Starred / Archived / Trash */}
@@ -170,7 +203,54 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry }: SidebarProp
         selectedGroup={selectedSystemGroup}
         onSelectGroup={handleSelectSystemGroup}
         refreshKey={refreshKey}
+        selectedAccountId={selectedAccountId}
       />
+
+      {/* Accounts section (only when multiple accounts) */}
+      {showAccountsSection && (
+        <div className="px-3 pt-3 pb-1 space-y-0.5">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 pb-1">
+            Accounts
+          </p>
+          {accounts.map((account) => {
+            const isSelected = selectedAccountId === account.id;
+            return (
+              <div
+                key={account.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleSelectAccount(account.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleSelectAccount(account.id);
+                  }
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer
+                  ${isSelected
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-foreground hover:bg-accent'
+                  }
+                `}
+              >
+                <AccountDot color={account.color ?? '#3B82F6'} />
+                <Mail className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <span className="truncate flex-1 text-left">
+                  {account.display_name ?? account.email}
+                </span>
+              </div>
+            );
+          })}
+          {selectedAccountId && (
+            <button
+              onClick={() => setSelectedAccountId(null)}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 mt-0.5"
+            >
+              Show all accounts
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Category navigation */}
       <div className="flex-1 overflow-auto">

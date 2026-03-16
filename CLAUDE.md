@@ -52,7 +52,7 @@ src/
 
 | Table | Purpose |
 |---|---|
-| `gmail_accounts` | OAuth tokens (AES-256-GCM encrypted), sync state, `granted_scope` |
+| `gmail_accounts` | OAuth tokens (AES-256-GCM encrypted), sync state, `granted_scope`, `color`, `display_name` |
 | `emails` | Email metadata synced from Gmail. Key columns: `is_read`, `is_starred`, `is_categorized` |
 | `email_categories` | AI-assigned: `category`, `topic`, `priority`, `confidence`. FK to emails |
 | `grouping_configs` | User's tree hierarchy. `levels` is JSONB array of `{dimension, label}` |
@@ -64,6 +64,7 @@ src/
 Run in Supabase SQL Editor (not via CLI):
 - `supabase/migrations/00001_initial_schema.sql` — Base tables + RLS
 - `supabase/migrations/00002_unread_and_preferences.sql` — `is_categorized`, `is_starred`, `granted_scope`, `user_preferences`
+- `supabase/migrations/00013_multi_inbox.sql` — Multi-inbox: `gmail_accounts.color/display_name`, `user_categories.gmail_account_id`, updated RPC functions
 
 ## Key Architecture Patterns
 
@@ -121,6 +122,17 @@ This is because Supabase PostgREST doesn't support native GROUP BY.
 - **Email-table**: `sender`, `sender_domain`, `is_read`, `has_attachment`
 - **Category-table** (requires join): `category`, `topic`, `priority`
 - **Date** (JS formatting): `date_month`, `date_week`
+- **Account** (multi-inbox): `account` — groups by gmail_account display_name
+
+### Multi-Inbox Architecture
+- Users can connect multiple Gmail accounts. Each `gmail_accounts` row has `color` (hex) and `display_name`.
+- Default view is **unified** (all inboxes merged). Sidebar shows an "Accounts" section (only when >1 account) with colored dots; clicking filters to that inbox.
+- `user_categories` has optional `gmail_account_id` FK: NULL = global (all inboxes), SET = inbox-specific.
+- AI categorization is scoped: when categorizing account X, uses global + account X's categories (excludes other accounts').
+- Sync syncs all enabled accounts sequentially. `POST /api/sync?accountId=X` syncs a specific one.
+- Email rows/cards show a colored dot indicating source account (only in multi-account mode).
+- Workflows support `account` as a condition field.
+- `account` is a grouping dimension (board columns = one per inbox).
 
 ## Environment Variables
 

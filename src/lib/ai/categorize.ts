@@ -35,14 +35,30 @@ function importanceToPriority(label: ImportanceLabel): 'high' | 'normal' | 'low'
 /**
  * Fetch user's custom categories. Falls back to hardcoded defaults
  * if the user_categories table doesn't exist yet or has no rows.
+ *
+ * When gmailAccountId is provided, returns:
+ * - Global categories (gmail_account_id IS NULL)
+ * - This account's inbox-specific categories (gmail_account_id = gmailAccountId)
+ * Excludes other accounts' inbox-specific categories.
  */
-async function getUserCategories(userId: string): Promise<{ name: string; description: string | null }[]> {
+async function getUserCategories(
+  userId: string,
+  gmailAccountId?: string,
+): Promise<{ name: string; description: string | null }[]> {
   const serviceClient = createServiceClient();
-  const { data, error } = await serviceClient
+
+  let query = serviceClient
     .from('user_categories')
-    .select('name, description')
+    .select('name, description, gmail_account_id')
     .eq('user_id', userId)
     .order('sort_order', { ascending: true });
+
+  // When scoped to an account, fetch global + this account's categories only
+  if (gmailAccountId) {
+    query = query.or(`gmail_account_id.is.null,gmail_account_id.eq.${gmailAccountId}`);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data || data.length === 0) {
     // Fall back to hardcoded defaults (pre-migration or no categories seeded)
@@ -129,6 +145,8 @@ function buildCategorizeTool(categoryNames: string[]): Anthropic.Messages.Tool {
 interface CategorizeOptions {
   refinementPrompt?: string;
   sourceCategory?: string;
+  /** When set, scopes categories to global + this account's inbox-specific ones */
+  gmailAccountId?: string;
 }
 
 export async function categorizeEmails(
@@ -140,8 +158,8 @@ export async function categorizeEmails(
   let categorized = 0;
   let errors = 0;
 
-  // Fetch user's custom categories (E3)
-  const userCategories = await getUserCategories(userId);
+  // Fetch user's custom categories, scoped to account if provided (E3)
+  const userCategories = await getUserCategories(userId, options.gmailAccountId);
   const categoryNames = userCategories.map((c) => c.name);
   const tool = buildCategorizeTool(categoryNames);
 

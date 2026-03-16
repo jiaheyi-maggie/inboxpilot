@@ -55,6 +55,12 @@ export const DIMENSIONS: Record<DimensionKey, DimensionDef> = {
     sqlColumn: 'e.is_read',
     description: 'Read or unread',
   },
+  account: {
+    key: 'account',
+    label: 'Account',
+    sqlColumn: 'ga.display_name',
+    description: 'Gmail account (for multi-inbox grouping)',
+  },
 };
 
 /**

@@ -13,9 +13,13 @@ interface BoardColumnProps {
   groupKey: string;
   emails: EmailWithCategory[];
   onSelectEmail: (emailId: string) => void;
+  /** Map of gmail_account_id -> hex color for account dot indicators */
+  accountColorMap?: Map<string, string>;
+  /** Whether to show account dots (only when multiple accounts) */
+  showAccountDot?: boolean;
 }
 
-export function BoardColumn({ groupKey, emails, onSelectEmail }: BoardColumnProps) {
+export function BoardColumn({ groupKey, emails, onSelectEmail, accountColorMap, showAccountDot }: BoardColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column:${groupKey}`,
     data: { type: 'column', groupKey },
@@ -65,6 +69,7 @@ export function BoardColumn({ groupKey, emails, onSelectEmail }: BoardColumnProp
                 key={email.id}
                 email={email}
                 onSelect={onSelectEmail}
+                accountColor={showAccountDot ? accountColorMap?.get(email.gmail_account_id) : undefined}
               />
             ))
           )}

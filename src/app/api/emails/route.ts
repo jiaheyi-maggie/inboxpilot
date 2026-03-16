@@ -6,6 +6,9 @@ import type { DimensionKey, GroupingLevel } from '@/types';
 // --- Category-table dimensions that live on the email_categories join ---
 const CATEGORY_DIMENSIONS = new Set<DimensionKey>(['category', 'topic', 'importance']);
 
+// --- Account dimension (needs gmail_accounts join for display_name) ---
+const ACCOUNT_DIMENSION: DimensionKey = 'account';
+
 // Map dimension keys to their actual column names in email_categories.
 // Most match 1:1 except importance → importance_label.
 const CATEGORY_COLUMN_MAP: Partial<Record<DimensionKey, string>> = {
@@ -82,26 +85,39 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No grouping config' }, { status: 404 });
   }
 
-  // Get user's Gmail account
-  const { data: account } = await serviceClient
+  // Get user's Gmail accounts (multi-inbox support)
+  const { data: allAccounts } = await serviceClient
     .from('gmail_accounts')
     .select('id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .eq('user_id', user.id);
 
-  if (!account) {
+  if (!allAccounts || allAccounts.length === 0) {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
   }
+
+  // If an account filter is specified, validate it belongs to this user, then use it
+  const accountFilter = searchParams.get('filter.account');
+  const allAccountIdSet = new Set(allAccounts.map((a) => a.id));
+  if (accountFilter && !allAccountIdSet.has(accountFilter)) {
+    return NextResponse.json({ error: 'Invalid account filter' }, { status: 403 });
+  }
+  const accountIds = accountFilter
+    ? [accountFilter]
+    : allAccounts.map((a) => a.id);
+
+  // For backward compat, use first account id for single-account operations
+  const account = { id: allAccounts[0].id };
 
   const levels = config.levels as GroupingLevel[];
   const currentLevel = parseInt(searchParams.get('level') ?? '0', 10);
 
   // Parse parent filters: filter.category=Work&filter.sender_domain=google.com
+  // Note: filter.account is handled above by narrowing accountIds, so skip it here
   const parentFilters: { dimension: DimensionKey; value: string }[] = [];
   searchParams.forEach((value, key) => {
     if (key.startsWith('filter.')) {
       const rawDim = key.replace('filter.', '');
+      if (rawDim === 'account') return; // handled via accountIds
       if (DIMENSIONS[rawDim as DimensionKey]) {
         parentFilters.push({ dimension: rawDim as DimensionKey, value });
       }
@@ -122,10 +138,10 @@ export async function GET(request: NextRequest) {
   const isLeaf = forceLeaf || (!hasGroupOverride && currentLevel >= levels.length);
 
   if (isLeaf) {
-    return handleLeafQuery(serviceClient, account.id, parentFilters, config, limit, offset);
+    return handleLeafQuery(serviceClient, accountIds, parentFilters, config, limit, offset);
   }
 
-  return handleGroupQuery(serviceClient, account.id, levels, currentLevel, parentFilters, config, limit, offset, overrideDimension);
+  return handleGroupQuery(serviceClient, accountIds, levels, currentLevel, parentFilters, config, limit, offset, overrideDimension);
 }
 
 /**
@@ -134,7 +150,7 @@ export async function GET(request: NextRequest) {
  */
 async function handleGroupQuery(
   serviceClient: ReturnType<typeof createServiceClient>,
-  gmailAccountId: string,
+  accountIds: string[],
   levels: GroupingLevel[],
   currentLevel: number,
   parentFilters: { dimension: DimensionKey; value: string }[],
@@ -152,14 +168,15 @@ async function handleGroupQuery(
     parentFilters.some((f) => CATEGORY_DIMENSIONS.has(f.dimension));
 
   // Fetch only the columns needed for grouping + filtering (minimize data transfer)
+  // Always include gmail_account_id for account dimension support
   const selectFields = needsCategories
-    ? 'id, sender_email, sender_domain, is_read, has_attachment, received_at, email_categories(*)'
-    : 'id, sender_email, sender_domain, is_read, has_attachment, received_at';
+    ? 'id, gmail_account_id, sender_email, sender_domain, is_read, has_attachment, received_at, email_categories(*)'
+    : 'id, gmail_account_id, sender_email, sender_domain, is_read, has_attachment, received_at';
 
   let query = serviceClient
     .from('emails')
     .select(selectFields)
-    .eq('gmail_account_id', gmailAccountId)
+    .in('gmail_account_id', accountIds)
     .contains('label_ids', ['INBOX']);
 
   // Apply date range from config
@@ -192,7 +209,7 @@ async function handleGroupQuery(
   }
 
   if (!rows || rows.length === 0) {
-    console.log(`[emails] 0 rows for account=${gmailAccountId}, dimension=${targetDimension}`);
+    console.log(`[emails] 0 rows for accounts=${accountIds.join(',')}, dimension=${targetDimension}`);
     return NextResponse.json({
       type: 'groups',
       dimension: targetDimension,
@@ -233,13 +250,29 @@ async function handleGroupQuery(
     }
   }
 
+  // For account dimension, build a lookup map of account_id -> display_name
+  let accountDisplayNames: Map<string, string> | null = null;
+  if (targetDimension === ACCOUNT_DIMENSION) {
+    accountDisplayNames = new Map();
+    const { data: accts } = await serviceClient
+      .from('gmail_accounts')
+      .select('id, display_name, email')
+      .in('id', accountIds);
+    for (const a of accts ?? []) {
+      accountDisplayNames.set(a.id, a.display_name ?? a.email);
+    }
+  }
+
   // Group by target dimension
   const counts = new Map<string, number>();
 
   for (const row of filtered) {
     let key: string | null = null;
 
-    if (CATEGORY_DIMENSIONS.has(targetDimension)) {
+    if (targetDimension === ACCOUNT_DIMENSION) {
+      const accountId = row.gmail_account_id as string;
+      key = accountDisplayNames?.get(accountId) ?? accountId ?? null;
+    } else if (CATEGORY_DIMENSIONS.has(targetDimension)) {
       const cat = getCategory(row.email_categories);
       const col = CATEGORY_COLUMN_MAP[targetDimension] ?? targetDimension;
       key = cat ? (cat[col] as string) ?? null : null;
@@ -279,7 +312,7 @@ async function handleGroupQuery(
  */
 async function handleLeafQuery(
   serviceClient: ReturnType<typeof createServiceClient>,
-  gmailAccountId: string,
+  accountIds: string[],
   parentFilters: { dimension: DimensionKey; value: string }[],
   config: Record<string, unknown>,
   limit: number,
@@ -291,7 +324,7 @@ async function handleLeafQuery(
       *,
       email_categories(*)
     `)
-    .eq('gmail_account_id', gmailAccountId)
+    .in('gmail_account_id', accountIds)
     .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);

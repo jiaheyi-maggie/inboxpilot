@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 
-export async function GET() {
+/**
+ * GET /api/emails/unread — returns unread inbox emails.
+ * Accepts optional ?accountId=UUID to filter to a specific account.
+ */
+export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -13,23 +17,34 @@ export async function GET() {
 
   const serviceClient = createServiceClient();
 
-  // Get user's Gmail account
-  const { data: account } = await serviceClient
+  // Get user's Gmail accounts (multi-inbox)
+  const { data: accounts } = await serviceClient
     .from('gmail_accounts')
     .select('id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .eq('user_id', user.id);
 
-  if (!account) {
+  if (!accounts || accounts.length === 0) {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
+  }
+
+  const allAccountIds = accounts.map((a) => a.id);
+
+  // Optional: filter to a specific account
+  const accountIdParam = request.nextUrl.searchParams.get('accountId');
+  let accountIds = allAccountIds;
+
+  if (accountIdParam) {
+    if (!allAccountIds.includes(accountIdParam)) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 403 });
+    }
+    accountIds = [accountIdParam];
   }
 
   // Fetch all unread inbox emails (exclude trashed/archived)
   const { data: emails, error } = await serviceClient
     .from('emails')
     .select('*, email_categories(*)')
-    .eq('gmail_account_id', account.id)
+    .in('gmail_account_id', accountIds)
     .eq('is_read', false)
     .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })

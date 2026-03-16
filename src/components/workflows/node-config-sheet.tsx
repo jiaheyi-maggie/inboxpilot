@@ -44,6 +44,39 @@ function useCategories() {
   return categories;
 }
 
+/** Account info used for the workflow condition dropdown. */
+interface AccountOption {
+  id: string;
+  email: string;
+  display_name: string | null;
+  color: string;
+}
+
+/** Hook to fetch user's connected Gmail accounts. */
+function useAccounts() {
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const { accounts: accts } = await res.json();
+          if (!cancelled && accts) {
+            setAccounts(accts);
+          }
+        }
+      } catch {
+        // keep empty
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return accounts;
+}
+
 interface NodeConfigSheetProps {
   node: WorkflowNode | null;
   onClose: () => void;
@@ -52,6 +85,7 @@ interface NodeConfigSheetProps {
 
 export function NodeConfigSheet({ node, onClose, onUpdate }: NodeConfigSheetProps) {
   const categories = useCategories();
+  const accounts = useAccounts();
 
   if (!node) return null;
 
@@ -74,6 +108,7 @@ export function NodeConfigSheet({ node, onClose, onUpdate }: NodeConfigSheetProp
               data={node.data as ConditionNodeData}
               onChange={(data) => onUpdate(node.id, data)}
               categories={categories}
+              accounts={accounts}
             />
           )}
           {node.type === 'action' && (
@@ -191,6 +226,7 @@ const CONDITION_FIELDS: { value: WorkflowConditionField; label: string }[] = [
   { value: 'is_read', label: 'Is Read' },
   { value: 'is_starred', label: 'Is Starred' },
   { value: 'label', label: 'Label' },
+  { value: 'account', label: 'Account' },
 ];
 
 const CONDITION_OPERATORS: { value: WorkflowConditionOperator; label: string }[] = [
@@ -208,21 +244,34 @@ function ConditionConfig({
   data,
   onChange,
   categories,
+  accounts,
 }: {
   data: ConditionNodeData;
   onChange: (data: ConditionNodeData) => void;
   categories: string[];
+  accounts: AccountOption[];
 }) {
   const isBooleanOp = data.operator === 'is_true' || data.operator === 'is_false';
+
+  // Filter operators based on field type
+  const DROPDOWN_FIELDS = new Set(['account', 'category', 'importance', 'priority']);
+  const BOOLEAN_FIELDS = new Set(['has_attachment', 'is_read', 'is_starred']);
+  const filteredOperators = BOOLEAN_FIELDS.has(data.field)
+    ? CONDITION_OPERATORS.filter((op) => op.value === 'is_true' || op.value === 'is_false')
+    : DROPDOWN_FIELDS.has(data.field)
+      ? CONDITION_OPERATORS.filter((op) => op.value === 'equals' || op.value === 'not_equals')
+      : CONDITION_OPERATORS;
 
   return (
     <>
       <FieldLabel label="Field">
         <select
           value={data.field}
-          onChange={(e) =>
-            onChange({ ...data, field: e.target.value as WorkflowConditionField })
-          }
+          onChange={(e) => {
+            const newField = e.target.value as WorkflowConditionField;
+            const defaultOp = BOOLEAN_FIELDS.has(newField) ? 'is_true' : 'equals';
+            onChange({ ...data, field: newField, operator: defaultOp as WorkflowConditionOperator, value: '' });
+          }}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
           {CONDITION_FIELDS.map((f) => (
@@ -241,7 +290,7 @@ function ConditionConfig({
           }
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
-          {CONDITION_OPERATORS.map((op) => (
+          {filteredOperators.map((op) => (
             <option key={op.value} value={op.value}>
               {op.label}
             </option>
@@ -276,6 +325,19 @@ function ConditionConfig({
               <option value="medium">Medium</option>
               <option value="low">Low</option>
               <option value="noise">Noise</option>
+            </select>
+          ) : data.field === 'account' ? (
+            <select
+              value={data.value}
+              onChange={(e) => onChange({ ...data, value: e.target.value })}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Select account...</option>
+              {accounts.map((acct) => (
+                <option key={acct.id} value={acct.id}>
+                  {acct.display_name ? `${acct.display_name} (${acct.email})` : acct.email}
+                </option>
+              ))}
             </select>
           ) : (
             <input

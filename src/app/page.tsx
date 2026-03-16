@@ -5,8 +5,15 @@ import { LandingHero } from '@/components/landing/hero';
 export default async function LandingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; code?: string }>;
 }) {
+  const { error, code } = await searchParams;
+
+  // If Supabase sent the OAuth code to / instead of /callback, forward it
+  if (code) {
+    redirect(`/callback?code=${encodeURIComponent(code)}`);
+  }
+
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -15,8 +22,6 @@ export default async function LandingPage({
   if (user) {
     redirect('/dashboard');
   }
-
-  const { error } = await searchParams;
 
   return <LandingHero error={error} />;
 }

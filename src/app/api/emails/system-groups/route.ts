@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 
 /**
  * GET /api/emails/system-groups — returns counts for starred, archived, and trash.
- * These are system-level groups independent of AI categorization.
+ * Accepts optional ?accountId=UUID to filter to a specific account.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -17,15 +17,27 @@ export async function GET() {
 
   const serviceClient = createServiceClient();
 
-  const { data: account } = await serviceClient
+  const { data: accounts } = await serviceClient
     .from('gmail_accounts')
     .select('id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .eq('user_id', user.id);
 
-  if (!account) {
+  if (!accounts || accounts.length === 0) {
     return NextResponse.json({ error: 'No Gmail account' }, { status: 404 });
+  }
+
+  const allAccountIds = accounts.map((a) => a.id);
+
+  // Optional: filter to a specific account
+  const accountIdParam = request.nextUrl.searchParams.get('accountId');
+  let accountIds = allAccountIds;
+
+  if (accountIdParam) {
+    // Validate the accountId belongs to this user
+    if (!allAccountIds.includes(accountIdParam)) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 403 });
+    }
+    accountIds = [accountIdParam];
   }
 
   // Run all three counts in parallel
@@ -33,21 +45,30 @@ export async function GET() {
     serviceClient
       .from('emails')
       .select('id', { count: 'exact', head: true })
-      .eq('gmail_account_id', account.id)
+      .in('gmail_account_id', accountIds)
       .eq('is_starred', true)
       .contains('label_ids', ['INBOX']),
     serviceClient
       .from('emails')
       .select('id', { count: 'exact', head: true })
-      .eq('gmail_account_id', account.id)
+      .in('gmail_account_id', accountIds)
       .not('label_ids', 'cs', '{"INBOX"}')
       .not('label_ids', 'cs', '{"TRASH"}'),
     serviceClient
       .from('emails')
       .select('id', { count: 'exact', head: true })
-      .eq('gmail_account_id', account.id)
+      .in('gmail_account_id', accountIds)
       .contains('label_ids', ['TRASH']),
   ]);
+
+  if (starredRes.error || archivedRes.error || trashRes.error) {
+    console.error('[system-groups] Count query failed:', {
+      starred: starredRes.error,
+      archived: archivedRes.error,
+      trash: trashRes.error,
+    });
+    return NextResponse.json({ error: 'Failed to fetch counts' }, { status: 500 });
+  }
 
   return NextResponse.json({
     groups: {

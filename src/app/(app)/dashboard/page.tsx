@@ -89,18 +89,21 @@ export default async function DashboardPage() {
     redirect('/setup');
   }
 
-  // Fetch account info for auto-sync
-  const { data: account } = await serviceClient
+  // Fetch ALL accounts for multi-inbox support
+  const { data: accounts } = await serviceClient
     .from('gmail_accounts')
-    .select('id, email, last_sync_at, sync_enabled, granted_scope')
+    .select('id, email, last_sync_at, sync_enabled, granted_scope, color, display_name')
     .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle();
+    .order('created_at', { ascending: true });
+
+  // Primary account (first one) used for backward-compat in single-account checks
+  const account = accounts && accounts.length > 0 ? accounts[0] : null;
 
   return (
     <DashboardClient
       viewConfig={activeView}
       account={account}
+      accounts={accounts ?? []}
     />
   );
 }
