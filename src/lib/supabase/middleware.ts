@@ -25,6 +25,13 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Skip getUser() when ?code= is present — the code exchange hasn't
+  // happened yet (it's done client-side). Calling getUser() here could
+  // interfere with the PKCE cookie state.
+  if (request.nextUrl.pathname === '/' && request.nextUrl.searchParams.has('code')) {
+    return supabaseResponse;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -53,10 +60,6 @@ export async function updateSession(request: NextRequest) {
 
 /**
  * Create a redirect response that preserves auth cookies from supabaseResponse.
- *
- * When getUser() refreshes an expired token, new tokens are written to supabaseResponse
- * via setAll(). A bare NextResponse.redirect() creates a NEW response without those cookies.
- * With Supabase's refresh token rotation, losing the new token = permanent session loss.
  */
 function createRedirectWithCookies(url: URL, supabaseResponse: NextResponse): NextResponse {
   const redirectResponse = NextResponse.redirect(url);
