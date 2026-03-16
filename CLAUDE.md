@@ -160,3 +160,5 @@ Note: `server.ts` references `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not `ANON_K
 - **Supabase `.range()`**: Uses inclusive bounds — `range(0, 49)` returns 50 rows.
 - **React hooks ordering**: `useCallback` must be defined before any `useEffect` that references it in the dependency array.
 - **"Synced 0" is normal for returning users**: Means no NEW emails since last sync — existing emails are already in DB. The tree should still show previously synced + categorized emails.
+
+@.claude/handover.md

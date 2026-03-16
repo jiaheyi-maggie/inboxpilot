@@ -220,7 +220,7 @@ function AccountRow({ account, onUpdated }: AccountRowProps) {
     } finally {
       setSaving(false);
     }
-  }, [account.id, editDisplayName, editColor, onUpdated]);
+  }, [saving, account.id, editDisplayName, editColor, onUpdated]);
 
   return (
     <div className="px-4 py-3">

@@ -66,7 +66,10 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selected
       const res = await fetch('/api/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markRead: true }),
+        body: JSON.stringify({
+          markRead: true,
+          ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

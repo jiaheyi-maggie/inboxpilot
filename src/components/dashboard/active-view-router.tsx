@@ -116,7 +116,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     try {
       const params = new URLSearchParams();
 
-      // For tree view with group_by, fetch group nodes (board view always fetches leaf emails)
+      // For tree view with group_by, fetch group nodes
       if (viewType === 'tree' && groupBy.length > 0) {
         params.set('level', '0');
         params.set('configId', viewConfig.id);
@@ -124,10 +124,16 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
           params.set('filter.category', selectedCategory);
         }
       } else {
-        // List view or tree with no grouping — fetch leaf emails
+        // List/board view or tree with no grouping — fetch leaf emails
         params.set('leaf', 'true');
         params.set('level', '0');
         params.set('configId', viewConfig.id);
+
+        // Board view needs ALL emails to show complete columns across all categories.
+        // Default limit of 50 only returns recent emails which may span 2-3 categories.
+        if (viewType === 'board') {
+          params.set('limit', '500');
+        }
 
         if (selectedCategory) {
           params.set('filter.category', selectedCategory);

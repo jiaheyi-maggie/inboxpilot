@@ -124,7 +124,9 @@ export async function GET(request: NextRequest) {
     }
   });
 
-  const limit = Math.max(1, Math.min(parseInt(searchParams.get('limit') ?? '50', 10) || 50, 200));
+  // Allow up to 500 for board view which needs all emails to show complete columns
+  const maxLimit = parseInt(searchParams.get('limit') ?? '0', 10) > 200 ? 500 : 200;
+  const limit = Math.max(1, Math.min(parseInt(searchParams.get('limit') ?? '50', 10) || 50, maxLimit));
   const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0', 10) || 0);
 
   // Support per-category view mode overrides via query params.
