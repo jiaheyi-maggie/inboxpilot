@@ -279,6 +279,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
           onClose={handleCloseChat}
           prefillMessage={chatPrefill}
           currentCategory={selectedCategory}
+          onRefresh={triggerRefresh}
         />
       </div>
 
@@ -306,6 +307,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
           onClose={handleCloseChat}
           prefillMessage={chatPrefill}
           currentCategory={selectedCategory}
+          onRefresh={triggerRefresh}
         />
       </div>
     </>

@@ -56,8 +56,8 @@ export async function PUT(
   }
   if (description !== undefined) {
     const trimmed = description?.trim() || null;
-    if (trimmed && trimmed.length > 200) {
-      return NextResponse.json({ error: 'Description too long (max 200 characters)' }, { status: 400 });
+    if (trimmed && trimmed.length > 1000) {
+      return NextResponse.json({ error: 'Description too long (max 1000 characters)' }, { status: 400 });
     }
     updates.description = trimmed;
   }

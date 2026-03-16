@@ -35,6 +35,8 @@ interface ChatSidebarProps {
   prefillMessage?: string;
   /** Current category context from the sidebar selection */
   currentCategory?: string | null;
+  /** Called after actions that change email data (e.g., recategorization) to refresh the UI */
+  onRefresh?: () => void;
 }
 
 // ── Intent Icons ──
@@ -79,6 +81,7 @@ export function ChatSidebar({
   onClose,
   prefillMessage,
   currentCategory,
+  onRefresh,
 }: ChatSidebarProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -296,13 +299,47 @@ export function ChatSidebar({
           return;
         }
 
-        toast.success(`Updated "${matchedCategory.name}" — AI will use this context for future categorization`);
+        toast.success(`Updated "${matchedCategory.name}" — re-categorizing existing emails...`);
+
+        // Fire non-blocking recategorization with the new context
+        fetch('/api/categorize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recategorize: true,
+            refinementPrompt: contextText,
+            sourceCategory: matchedCategory.name,
+          }),
+        })
+          .then(async (recatRes) => {
+            if (recatRes.ok) {
+              const recatData = await recatRes.json();
+              const count = recatData.pending ?? 0;
+              if (count > 0) {
+                toast.success(`Re-categorizing ${count} emails with new context`, {
+                  description: 'The dashboard will update as emails are processed.',
+                  duration: 5000,
+                });
+                // Wait a bit for the background task to process, then refresh UI
+                // Background categorization runs via Next.js `after()`, typically completes
+                // within a few seconds for 100 emails (4 batches of 25).
+                setTimeout(() => onRefresh?.(), 8000);
+              } else {
+                toast.info('No existing emails matched for re-categorization');
+              }
+            } else {
+              toast.error('Failed to start re-categorization');
+            }
+          })
+          .catch(() => {
+            toast.error('Re-categorization request failed');
+          });
       } catch {
         toast.error('Failed to apply context');
         revertResolved();
       }
     },
-    [currentCategory]
+    [currentCategory, onRefresh]
   );
 
   const handleExecuteCommand = useCallback(

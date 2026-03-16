@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import { categorizeEmails, getUncategorizedEmails } from '@/lib/ai/categorize';
+import { categorizeEmails, getUncategorizedEmails, getCategorizedEmails } from '@/lib/ai/categorize';
 import { markAsReadBulk } from '@/lib/gmail/client';
 import type { GmailAccount } from '@/types';
 
@@ -14,13 +14,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Parse optional body — markRead: true means also mark unread emails as read (used by "Categorize All" in Unread section)
+  // Parse optional body
   let markRead = false;
+  let recategorize = false;
+  let refinementPrompt: string | undefined;
+  let sourceCategory: string | undefined;
   try {
     const body = await request.json();
     markRead = body?.markRead === true;
+    recategorize = body?.recategorize === true;
+    if (typeof body?.refinementPrompt === 'string') refinementPrompt = body.refinementPrompt;
+    if (typeof body?.sourceCategory === 'string') sourceCategory = body.sourceCategory;
   } catch {
-    // No body or invalid JSON — that's fine, defaults to markRead=false
+    // No body or invalid JSON — that's fine, defaults apply
   }
 
   const serviceClient = createServiceClient();
@@ -38,6 +44,73 @@ export async function POST(request: NextRequest) {
   }
 
   const account = allAccounts[0];
+
+  // ── Recategorize branch: re-evaluate already-categorized emails with new context ──
+  if (recategorize) {
+    const RECATEGORIZE_LIMIT = 100;
+    const emailsToRecategorize = await getCategorizedEmails(user.id, {
+      sourceCategory,
+      limit: RECATEGORIZE_LIMIT,
+    });
+
+    if (emailsToRecategorize.length === 0) {
+      return NextResponse.json({
+        success: true,
+        recategorized: 0,
+        message: 'No categorized emails found to re-evaluate',
+      });
+    }
+
+    // Mark as pending so UI shows spinners
+    const recatIds = emailsToRecategorize.map((e) => e.id);
+    const serviceClientRecat = createServiceClient();
+    await serviceClientRecat
+      .from('emails')
+      .update({ categorization_status: 'pending' })
+      .in('id', recatIds);
+
+    // Build account map for scoped categorization
+    const accountMapRecat = new Map<string, GmailAccount>();
+    for (const a of allAccounts) {
+      accountMapRecat.set(a.id, a as GmailAccount);
+    }
+
+    // Run recategorization in background so the response returns immediately
+    const emailsForBg = [...emailsToRecategorize];
+    after(async () => {
+      try {
+        // Group by account for proper category scoping
+        const byAccount = new Map<string, typeof emailsForBg>();
+        for (const e of emailsForBg) {
+          const list = byAccount.get(e.gmail_account_id) ?? [];
+          list.push(e);
+          byAccount.set(e.gmail_account_id, list);
+        }
+
+        let totalCategorized = 0;
+        let totalErrors = 0;
+        for (const [accountId, emails] of byAccount) {
+          console.log(`[recategorize-bg] Re-categorizing ${emails.length} emails for account ${accountId}`);
+          const result = await categorizeEmails(emails, user.id, {
+            gmailAccountId: accountId,
+            refinementPrompt,
+            sourceCategory,
+          });
+          totalCategorized += result.categorized;
+          totalErrors += result.errors;
+        }
+        console.log(`[recategorize-bg] Done: recategorized=${totalCategorized}, errors=${totalErrors}`);
+      } catch (err) {
+        console.error('[recategorize-bg] Background recategorization failed:', err);
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      pending: emailsToRecategorize.length,
+      message: `Re-categorizing ${emailsToRecategorize.length} emails in background`,
+    });
+  }
 
   // Fetch uncategorized emails across ALL accounts
   const uncategorizedLists = await Promise.all(

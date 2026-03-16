@@ -304,6 +304,59 @@ ${emailSummaries}`,
   return { categorized, errors };
 }
 
+/**
+ * Fetch already-categorized emails for re-categorization.
+ * Optionally filtered by source category (via email_categories join).
+ */
+export async function getCategorizedEmails(
+  userId: string,
+  opts: { sourceCategory?: string; limit?: number; gmailAccountId?: string } = {}
+): Promise<Email[]> {
+  const { sourceCategory, limit = 100, gmailAccountId } = opts;
+  const serviceClient = createServiceClient();
+
+  // First, get all gmail account IDs for this user (or use the specific one)
+  let accountIds: string[];
+  if (gmailAccountId) {
+    accountIds = [gmailAccountId];
+  } else {
+    const { data: accounts } = await serviceClient
+      .from('gmail_accounts')
+      .select('id')
+      .eq('user_id', userId);
+    accountIds = (accounts ?? []).map((a) => a.id);
+  }
+
+  if (accountIds.length === 0) return [];
+
+  // Fetch categorized emails with their categories
+  let query = serviceClient
+    .from('emails')
+    .select('*, email_categories!inner(category)')
+    .in('gmail_account_id', accountIds)
+    .eq('is_categorized', true)
+    .order('received_at', { ascending: false })
+    .limit(limit);
+
+  // Filter by source category in the join table
+  if (sourceCategory) {
+    query = query.eq('email_categories.category', sourceCategory);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('[getCategorizedEmails] Failed to fetch:', error);
+    return [];
+  }
+
+  // Strip the join data — categorizeEmails only needs Email fields
+  return (data ?? []).map((row) => {
+    const { email_categories: _, ...email } = row as Record<string, unknown> & { email_categories: unknown };
+    return email as unknown as Email;
+  });
+}
+
 export async function getUncategorizedEmails(
   gmailAccountId: string,
   opts: { includeUnread?: boolean; limit?: number } = {}
