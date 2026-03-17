@@ -100,7 +100,7 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selected
     } finally {
       setCategorizingAll(false);
     }
-  }, [onEmailRead, fetchUnread]);
+  }, [onEmailRead, fetchUnread, selectedAccountId]);
 
   // Remove an email from the local list with animation
   const handleEmailProcessed = useCallback(
