@@ -7,6 +7,7 @@ import { EmailList } from './email-list';
 import { EmailDetail } from './email-detail';
 import { TreeView } from './tree-view';
 import { BoardView } from './board-view';
+import { FocusView } from './focus-view';
 import { ViewBreadcrumb } from './view-breadcrumb';
 import type { EmailWithCategory, TreeNode, DimensionKey } from '@/types';
 
@@ -31,6 +32,9 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     selectedAccountId,
     selectedEmailId,
     setSelectedEmailId,
+    searchQuery,
+    searchFilters,
+    clearSearch,
     contentRefreshKey,
     triggerRefresh,
     viewConfig,
@@ -67,6 +71,59 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
   // ── Fetch data based on current view state ──
 
   const fetchData = useCallback(async () => {
+    // Search mode — fetch emails with text search + structured filters
+    if (searchQuery) {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set('leaf', 'true');
+        params.set('level', '0');
+        params.set('configId', viewConfig.id);
+        params.set('search', searchQuery);
+        params.set('limit', '100');
+
+        // Apply account filter
+        if (selectedAccountId) {
+          params.set('filter.account', selectedAccountId);
+        }
+
+        // Apply structured filters from AI intent (category, sender_domain, is_read, etc.)
+        if (searchFilters) {
+          if (searchFilters.category) {
+            params.set('filter.category', searchFilters.category);
+          }
+          if (searchFilters.sender_domain) {
+            params.set('filter.sender_domain', searchFilters.sender_domain);
+          }
+          if (searchFilters.sender_email) {
+            params.set('filter.sender', searchFilters.sender_email);
+          }
+          if (searchFilters.is_read !== undefined) {
+            params.set('filter.is_read', String(searchFilters.is_read));
+          }
+        }
+
+        const res = await fetch(`/api/emails?${params}`);
+        if (!res.ok) {
+          setEmails([]);
+          return;
+        }
+        const data = await res.json();
+        if (data.type === 'emails') {
+          setEmails(data.data);
+        } else {
+          setEmails([]);
+        }
+        setTreeNodes([]);
+      } catch {
+        setEmails([]);
+        setTreeNodes([]);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     // System group selected — fetch from system groups API
     if (selectedSystemGroup) {
       setLoading(true);
@@ -130,7 +187,8 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
 
         // Board view needs ALL emails to show complete columns across all categories.
         // Default limit of 50 only returns recent emails which may span 2-3 categories.
-        if (viewType === 'board') {
+        // Focus view also benefits from a larger batch to provide a meaningful processing queue.
+        if (viewType === 'board' || viewType === 'focus') {
           params.set('limit', '500');
         }
 
@@ -175,7 +233,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     } finally {
       setLoading(false);
     }
-  }, [viewType, filters, sort, groupBy, selectedCategory, selectedSystemGroup, selectedAccountId, viewConfig.id]);
+  }, [viewType, filters, sort, groupBy, selectedCategory, selectedSystemGroup, selectedAccountId, viewConfig.id, searchQuery, searchFilters]);
 
   useEffect(() => {
     fetchData();
@@ -257,6 +315,59 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Search results — always rendered as a flat list regardless of current view type
+  if (searchQuery) {
+    return (
+      <div>
+        <ViewBreadcrumb emailCount={emails.length} />
+        {emails.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="text-sm">No emails match &quot;{searchQuery}&quot;</p>
+            <button
+              onClick={clearSearch}
+              className="text-sm text-primary mt-2 hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        ) : (
+          <EmailList
+            emails={emails}
+            onEmailMoved={handleEmailMoved}
+            accountColorMap={accountColorMap}
+            showAccountDot={showAccountDot}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Focus view — swipe-to-process card stack sorted by importance
+  if (viewType === 'focus') {
+    const handleFocusSelectEmail = (emailId: string) => {
+      const email = emails.find((e) => e.id === emailId) ?? null;
+      if (email) {
+        setSelectedEmail(email);
+        setSelectedEmailId(emailId);
+      }
+    };
+
+    return (
+      <div className="h-full flex flex-col">
+        <ViewBreadcrumb emailCount={emails.length} />
+        <div className="flex-1 min-h-0">
+          <FocusView
+            emails={emails}
+            onEmailMoved={handleEmailMoved}
+            onSelectEmail={handleFocusSelectEmail}
+            accountColorMap={accountColorMap}
+            showAccountDot={showAccountDot}
+          />
         </div>
       </div>
     );

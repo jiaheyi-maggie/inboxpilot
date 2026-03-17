@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useView } from '@/contexts/view-context';
 import type { IntentResponse } from '@/types';
 
 // ── Types ──
@@ -255,6 +256,7 @@ export function ChatSidebar({
   currentCategory,
   onRefresh,
 }: ChatSidebarProps) {
+  const { setSearch } = useView();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -821,8 +823,10 @@ export function ChatSidebar({
                       size="xs"
                       onClick={() => {
                         const query = (msg.intent!.details.query as string) ?? msg.intent!.summary;
-                        toast.info(`Search: "${query}"`, { description: 'Use the toolbar filter to search' });
+                        const filters = (msg.intent!.details.filters as Record<string, unknown>) ?? {};
+                        setSearch(query, filters);
                         handleDismiss(msg.id);
+                        onClose();
                       }}
                     >
                       <Search className="h-3 w-3" />

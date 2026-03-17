@@ -1,0 +1,404 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Archive,
+  SkipForward,
+  Star,
+  ExternalLink,
+  CheckCircle2,
+  HelpCircle,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { FocusCard } from './focus-card';
+import type { EmailWithCategory } from '@/types';
+
+// ── Props ──
+
+interface FocusViewProps {
+  emails: EmailWithCategory[];
+  /** Called when an email is archived or starred (triggers sidebar/content refresh) */
+  onEmailMoved: () => void;
+  /** Called when the user taps a card to open the email detail */
+  onSelectEmail: (emailId: string) => void;
+  /** Map of gmail_account_id -> hex color */
+  accountColorMap?: Map<string, string>;
+  /** Whether to show account color dots */
+  showAccountDot?: boolean;
+}
+
+export function FocusView({
+  emails,
+  onEmailMoved,
+  onSelectEmail,
+  accountColorMap,
+  showAccountDot,
+}: FocusViewProps) {
+  // Sort by importance_score DESC (5=critical first), then received_at DESC within same score
+  const sortedEmails = useMemo(() => {
+    return [...emails].sort((a, b) => {
+      const scoreA = a.importance_score ?? 3; // default to medium
+      const scoreB = b.importance_score ?? 3;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
+    });
+  }, [emails]);
+
+  // Track which emails have been processed (archived, starred, or skipped)
+  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // The queue is sorted emails minus processed ones
+  const queue = useMemo(() => {
+    return sortedEmails.filter((e) => !processedIds.has(e.id));
+  }, [sortedEmails, processedIds]);
+
+  const currentEmail = queue[0] ?? null;
+  const nextEmail = queue[1] ?? null;
+
+  // Total = all emails, progress = how many we've processed
+  const totalCount = sortedEmails.length;
+  const processedCount = processedIds.size;
+  const progressPercent = totalCount > 0 ? (processedCount / totalCount) * 100 : 0;
+
+  // Reset processed IDs when the email set changes (e.g., different category/account selected)
+  const emailIdsKey = useMemo(() => emails.map((e) => e.id).sort().join(','), [emails]);
+  const prevEmailIdsKeyRef = useRef(emailIdsKey);
+  useEffect(() => {
+    if (emailIdsKey !== prevEmailIdsKeyRef.current) {
+      prevEmailIdsKeyRef.current = emailIdsKey;
+      setProcessedIds(new Set());
+    }
+  }, [emailIdsKey]);
+
+  // ── Action handlers ──
+
+  const executeAction = useCallback(
+    async (emailId: string, action: 'archive' | 'star') => {
+      setActionLoading(true);
+      try {
+        const res = await fetch(`/api/emails/${emailId}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error ?? `Action failed (${res.status})`);
+          return false;
+        }
+        return true;
+      } catch {
+        toast.error('Network error');
+        return false;
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    []
+  );
+
+  const handleArchive = useCallback(async () => {
+    if (!currentEmail || actionLoading) return;
+    // Optimistic: immediately advance to next card so there's no flash-back
+    const emailId = currentEmail.id;
+    const emailSubject = currentEmail.subject;
+    setProcessedIds((prev) => new Set(prev).add(emailId));
+    const success = await executeAction(emailId, 'archive');
+    if (success) {
+      toast.success('Archived', {
+        description: emailSubject || '(no subject)',
+      });
+      onEmailMoved();
+    } else {
+      // Roll back: remove from processed so user can retry
+      setProcessedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(emailId);
+        return next;
+      });
+    }
+  }, [currentEmail, actionLoading, executeAction, onEmailMoved]);
+
+  const handleStar = useCallback(async () => {
+    if (!currentEmail || actionLoading) return;
+    // Optimistic: immediately advance to next card so there's no flash-back
+    const emailId = currentEmail.id;
+    const emailSubject = currentEmail.subject;
+    setProcessedIds((prev) => new Set(prev).add(emailId));
+    const success = await executeAction(emailId, 'star');
+    if (success) {
+      toast.success('Starred', {
+        description: emailSubject || '(no subject)',
+      });
+      onEmailMoved();
+    } else {
+      // Roll back: remove from processed so user can retry
+      setProcessedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(emailId);
+        return next;
+      });
+    }
+  }, [currentEmail, actionLoading, executeAction, onEmailMoved]);
+
+  const handleSkip = useCallback(() => {
+    if (!currentEmail || actionLoading) return;
+    // Move to end of queue — just mark as processed
+    setProcessedIds((prev) => new Set(prev).add(currentEmail.id));
+  }, [currentEmail, actionLoading]);
+
+  const handleOpen = useCallback(() => {
+    if (!currentEmail) return;
+    onSelectEmail(currentEmail.id);
+  }, [currentEmail, onSelectEmail]);
+
+  // ── Keyboard shortcuts ──
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't capture when typing in inputs
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowRight':
+        case 'e':
+          e.preventDefault();
+          handleArchive();
+          break;
+        case 'ArrowLeft':
+        case 's':
+          e.preventDefault();
+          handleSkip();
+          break;
+        case 'ArrowUp':
+        case 'f':
+          e.preventDefault();
+          handleStar();
+          break;
+        case 'Enter':
+        case ' ':
+          e.preventDefault();
+          handleOpen();
+          break;
+        case '?':
+          e.preventDefault();
+          setShowHelp((prev) => !prev);
+          break;
+        case 'Escape':
+          if (showHelp) {
+            e.preventDefault();
+            setShowHelp(false);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleArchive, handleSkip, handleStar, handleOpen, showHelp]);
+
+  // ── Empty state ──
+
+  if (totalCount === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center px-6">
+        <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-foreground">No emails to review</h2>
+        <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+          Select a category or sync new emails to get started.
+        </p>
+      </div>
+    );
+  }
+
+  // All processed = inbox zero!
+  if (queue.length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center px-6">
+        <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-foreground">All caught up!</h2>
+        <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+          You&apos;ve processed all {totalCount} email{totalCount !== 1 ? 's' : ''}. Nice work.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={() => setProcessedIds(new Set())}
+        >
+          Review again
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Progress bar */}
+      <div className="px-4 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+          <span>
+            {processedCount + 1} of {totalCount} email{totalCount !== 1 ? 's' : ''}
+          </span>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            <span>Shortcuts</span>
+          </button>
+        </div>
+        <div className="h-1 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Card stack area */}
+      <div className="flex-1 min-h-0 px-4 pb-2 flex items-center justify-center">
+        <div className="relative w-full max-w-lg" style={{ height: 'min(420px, 60vh)' }}>
+          {/* Peek card (next email behind current) */}
+          {nextEmail && (
+            <FocusCard
+              key={nextEmail.id + '-peek'}
+              email={nextEmail}
+              onSwipeRight={() => {}}
+              onSwipeLeft={() => {}}
+              onSwipeUp={() => {}}
+              onTap={() => {}}
+              accountColor={showAccountDot ? accountColorMap?.get(nextEmail.gmail_account_id) : undefined}
+              isPeek
+            />
+          )}
+
+          {/* Current card */}
+          {currentEmail && (
+            <FocusCard
+              key={currentEmail.id}
+              email={currentEmail}
+              onSwipeRight={handleArchive}
+              onSwipeLeft={handleSkip}
+              onSwipeUp={handleStar}
+              onTap={handleOpen}
+              accountColor={showAccountDot ? accountColorMap?.get(currentEmail.gmail_account_id) : undefined}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="px-4 pb-4 flex-shrink-0">
+        <div className="flex items-center justify-center gap-3 max-w-lg mx-auto">
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1 gap-2"
+            onClick={handleSkip}
+            disabled={actionLoading}
+          >
+            <SkipForward className="h-4 w-4" />
+            Skip
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1 gap-2"
+            onClick={handleArchive}
+            disabled={actionLoading}
+          >
+            <Archive className="h-4 w-4" />
+            Archive
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1 gap-2"
+            onClick={handleStar}
+            disabled={actionLoading}
+          >
+            <Star className="h-4 w-4" />
+            Star
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1 gap-2"
+            onClick={handleOpen}
+            disabled={actionLoading}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open
+          </Button>
+        </div>
+        {/* Swipe hints (mobile) */}
+        <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-muted-foreground/60 sm:hidden">
+          <span>Swipe right: Archive</span>
+          <span>Swipe left: Skip</span>
+          <span>Swipe up: Star</span>
+        </div>
+      </div>
+
+      {/* Keyboard shortcuts help overlay */}
+      {showHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowHelp(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-foreground">Keyboard shortcuts</h3>
+              <button
+                onClick={() => setShowHelp(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2 text-sm">
+              {[
+                { keys: ['Right arrow', 'E'], action: 'Archive' },
+                { keys: ['Left arrow', 'S'], action: 'Skip' },
+                { keys: ['Up arrow', 'F'], action: 'Star' },
+                { keys: ['Enter', 'Space'], action: 'Open email' },
+                { keys: ['?'], action: 'Toggle this help' },
+                { keys: ['Esc'], action: 'Close help' },
+              ].map(({ keys, action }) => (
+                <div key={action} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{action}</span>
+                  <div className="flex items-center gap-1">
+                    {keys.map((key) => (
+                      <kbd
+                        key={key}
+                        className="px-1.5 py-0.5 text-xs bg-muted border border-border rounded font-mono"
+                      >
+                        {key}
+                      </kbd>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

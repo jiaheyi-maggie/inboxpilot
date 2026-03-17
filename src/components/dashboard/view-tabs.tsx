@@ -1,10 +1,11 @@
 'use client';
 
-import { List, Columns3, FolderTree } from 'lucide-react';
+import { List, Columns3, FolderTree, Crosshair } from 'lucide-react';
 import { useView } from '@/contexts/view-context';
 import type { ViewType } from '@/types';
 
 const VIEW_TAB_CONFIG: { type: ViewType; label: string; icon: typeof List; disabled?: boolean; tooltip?: string }[] = [
+  { type: 'focus', label: 'Focus', icon: Crosshair },
   { type: 'list', label: 'List', icon: List },
   { type: 'board', label: 'Board', icon: Columns3 },
   { type: 'tree', label: 'Tree', icon: FolderTree },

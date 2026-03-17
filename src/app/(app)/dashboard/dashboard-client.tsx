@@ -88,15 +88,20 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
 // ── Inner layout component that can use useView() ──
 
 function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
-  const { refreshKey, sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId } = useView();
+  const { refreshKey, sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId, searchQuery, clearSearch } = useView();
 
-  // Escape key clears category/system group selection (global navigation shortcut)
+  // Escape key clears search first, then category/system group selection
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         // Don't interfere with modals/inputs
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        // Clear search first if active, then navigation
+        if (searchQuery) {
+          clearSearch();
+          return;
+        }
         setSelectedCategory(null);
         setSelectedSystemGroup(null);
         setSelectedEmailId(null);
@@ -104,7 +109,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [setSelectedCategory, setSelectedSystemGroup, setSelectedEmailId]);
+  }, [setSelectedCategory, setSelectedSystemGroup, setSelectedEmailId, searchQuery, clearSearch]);
 
   // Build account color map: gmail_account_id -> color (stable across renders)
   const accountColorMap = useMemo(() => {

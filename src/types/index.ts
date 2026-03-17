@@ -136,7 +136,7 @@ export interface EmailWithCategory extends Email {
 
 // --- View System ---
 
-export type ViewType = 'list' | 'board' | 'tree';
+export type ViewType = 'list' | 'board' | 'tree' | 'focus';
 
 export interface ViewFilter {
   field: string;

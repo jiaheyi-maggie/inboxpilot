@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import type { ViewType, ViewFilter, ViewSort, GroupingLevel } from '@/types';
 
-const VALID_VIEW_TYPES: ViewType[] = ['list', 'board', 'tree'];
+const VALID_VIEW_TYPES: ViewType[] = ['list', 'board', 'tree', 'focus'];
 
 export async function GET() {
   const supabase = await createServerSupabaseClient();

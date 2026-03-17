@@ -34,7 +34,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const router = useRouter();
-  const { setSelectedSystemGroup, addFilter } = useView();
+  const { setSelectedSystemGroup, setSearch } = useView();
 
   // Register global Cmd+K / Ctrl+K shortcut
   useEffect(() => {
@@ -191,11 +191,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
               <CommandItem
                 onSelect={() =>
                   runAndClose(() => {
-                    addFilter({
-                      field: 'subject',
-                      operator: 'contains',
-                      value: query.trim(),
-                    });
+                    setSearch(query.trim());
                   })
                 }
               >

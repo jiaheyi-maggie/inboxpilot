@@ -21,6 +21,16 @@ import type {
 
 // ── Context value ──────────────────────────────────────────────
 
+/** Structured search filters from AI intent classification */
+export interface SearchFilters {
+  query: string;
+  sender_domain?: string;
+  category?: string;
+  is_read?: boolean;
+  sender_email?: string;
+  [key: string]: unknown;
+}
+
 interface ViewContextValue {
   /** The persisted view config (source of truth for saved state) */
   viewConfig: ViewConfig;
@@ -56,6 +66,12 @@ interface ViewContextValue {
   // ── Email selection ──
   selectedEmailId: string | null;
   setSelectedEmailId: (id: string | null) => void;
+
+  // ── Search ──
+  searchQuery: string | null;
+  searchFilters: SearchFilters | null;
+  setSearch: (query: string, filters?: Record<string, unknown>) => void;
+  clearSearch: () => void;
 
   // ── Refresh trigger ──
   refreshKey: number;
@@ -107,6 +123,10 @@ export function ViewProvider({
   const [selectedSystemGroup, setSelectedSystemGroupState] = useState<SystemGroupKey | null>(null);
   const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
 
   // Refresh trigger — combined key (backward compat) + scoped keys
   const [refreshKey, setRefreshKey] = useState(0);
@@ -230,22 +250,50 @@ export function ViewProvider({
     [persistViewConfig]
   );
 
-  // When selecting a category, clear system group (and vice versa)
+  // When selecting a category, clear system group and search (and vice versa)
   const setSelectedCategory = useCallback((cat: string | null) => {
     setSelectedCategoryState(cat);
     setSelectedSystemGroupState(null);
     setSelectedEmailId(null);
+    // Clear search when navigating to a category
+    setSearchQuery(null);
+    setSearchFilters(null);
   }, []);
 
   const setSelectedSystemGroup = useCallback((group: SystemGroupKey | null) => {
     setSelectedSystemGroupState(group);
     setSelectedCategoryState(null);
     setSelectedEmailId(null);
+    // Clear search when navigating to a system group
+    setSearchQuery(null);
+    setSearchFilters(null);
   }, []);
 
   const setSelectedAccountId = useCallback((id: string | null) => {
     setSelectedAccountIdState(id);
     setSelectedEmailId(null);
+  }, []);
+
+  // Search: activating a search clears category/system group selection to show results
+  const setSearch = useCallback((query: string, filters?: Record<string, unknown>) => {
+    const searchF: SearchFilters = { query, ...filters };
+    setSearchQuery(query);
+    setSearchFilters(searchF);
+    // Clear navigation so the main content area shows search results
+    setSelectedCategoryState(null);
+    setSelectedSystemGroupState(null);
+    setSelectedEmailId(null);
+    // Trigger a content refresh to fetch search results
+    setContentRefreshKey((k) => k + 1);
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery(null);
+    setSearchFilters(null);
+    // Trigger a content refresh to go back to normal view
+    setContentRefreshKey((k) => k + 1);
+    setRefreshKey((k) => k + 1);
   }, []);
 
   const value = useMemo<ViewContextValue>(
@@ -269,6 +317,10 @@ export function ViewProvider({
       setSelectedAccountId,
       selectedEmailId,
       setSelectedEmailId,
+      searchQuery,
+      searchFilters,
+      setSearch,
+      clearSearch,
       refreshKey,
       sidebarRefreshKey,
       contentRefreshKey,
@@ -295,6 +347,10 @@ export function ViewProvider({
       selectedAccountId,
       setSelectedAccountId,
       selectedEmailId,
+      searchQuery,
+      searchFilters,
+      setSearch,
+      clearSearch,
       refreshKey,
       sidebarRefreshKey,
       contentRefreshKey,

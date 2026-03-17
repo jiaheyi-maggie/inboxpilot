@@ -142,10 +142,13 @@ export async function GET(request: NextRequest) {
   const forceLeaf = searchParams.get('leaf') === 'true';
   const hasGroupOverride = !!overrideDimension;
 
+  // Text search parameter — searches across subject, snippet, sender_name, sender_email
+  const searchQuery = searchParams.get('search');
+
   const isLeaf = forceLeaf || (!hasGroupOverride && currentLevel >= levels.length);
 
   if (isLeaf) {
-    return handleLeafQuery(serviceClient, accountIds, parentFilters, config, limit, offset);
+    return handleLeafQuery(serviceClient, accountIds, parentFilters, config, limit, offset, searchQuery);
   }
 
   return handleGroupQuery(serviceClient, accountIds, levels, currentLevel, parentFilters, config, limit, offset, overrideDimension);
@@ -326,6 +329,7 @@ async function handleLeafQuery(
   config: Record<string, unknown>,
   limit: number,
   offset: number,
+  searchQuery?: string | null,
 ) {
   let query = serviceClient
     .from('emails')
@@ -337,6 +341,23 @@ async function handleLeafQuery(
     .contains('label_ids', ['INBOX'])
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);
+
+  // Apply text search across subject, snippet, sender_name, sender_email
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const term = searchQuery.trim();
+    // Supabase .or() with ilike for case-insensitive partial matching.
+    // Escape % and _ in the search term to prevent them acting as wildcards.
+    const escaped = term.replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const pattern = `%${escaped}%`;
+    // Double-quote the pattern value so that commas, periods, and parentheses
+    // inside the search term are not misinterpreted as PostgREST filter syntax
+    // separators.  PostgREST treats quoted values as literal strings.
+    // Inner double-quotes (if any) are escaped as \" per PostgREST spec.
+    const quoted = `"${pattern.replace(/"/g, '\\"')}"`;
+    query = query.or(
+      `subject.ilike.${quoted},snippet.ilike.${quoted},sender_name.ilike.${quoted},sender_email.ilike.${quoted}`
+    );
+  }
 
   if (config.date_range_start) {
     query = query.gte('received_at', config.date_range_start as string);
