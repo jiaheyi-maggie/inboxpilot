@@ -39,13 +39,28 @@ export function FocusView({
   accountColorMap,
   showAccountDot,
 }: FocusViewProps) {
-  // Sort by importance_score DESC (5=critical first), then received_at DESC within same score
+  // Smart sort: blended score of importance × recency
+  // A "high" email from 5 minutes ago beats a "critical" email from 2 weeks ago.
+  // Formula: focusScore = importance_score * recencyWeight
+  // recencyWeight decays from 1.0 (just arrived) to 0.1 (7+ days old) using exponential decay
   const sortedEmails = useMemo(() => {
+    const now = Date.now();
+    const DAY_MS = 86400000;
+
+    function focusScore(email: EmailWithCategory): number {
+      const importance = email.importance_score ?? 3; // 1-5, higher = more important
+      const ageMs = now - new Date(email.received_at).getTime();
+      const ageDays = ageMs / DAY_MS;
+      // Exponential decay: half-life of 2 days
+      // 0 days → 1.0, 1 day → 0.71, 2 days → 0.5, 4 days → 0.25, 7 days → 0.09
+      const recency = Math.max(0.05, Math.exp(-0.347 * ageDays));
+      // Unread emails get a 1.5x boost
+      const unreadBoost = email.is_read ? 1.0 : 1.5;
+      return importance * recency * unreadBoost;
+    }
+
     return [...emails].sort((a, b) => {
-      const scoreA = a.importance_score ?? 3; // default to medium
-      const scoreB = b.importance_score ?? 3;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
+      return focusScore(b) - focusScore(a);
     });
   }, [emails]);
 
