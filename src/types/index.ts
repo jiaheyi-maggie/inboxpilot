@@ -33,6 +33,7 @@ export interface Email {
   label_ids: string[];
   body_html: string | null;
   body_text: string | null;
+  snoozed_until: string | null;
   created_at: string;
 }
 
@@ -193,12 +194,15 @@ export type EmailAction =
   | 'mark_unread'
   | 'trash'
   | 'archive'
+  | 'unarchive'
   | 'star'
   | 'unstar'
-  | 'restore';
+  | 'restore'
+  | 'snooze'
+  | 'unsnooze';
 
 /** Keys for system-level sidebar groups (not AI categories) */
-export type SystemGroupKey = 'starred' | 'archived' | 'trash';
+export type SystemGroupKey = 'starred' | 'archived' | 'trash' | 'snoozed';
 
 /** Bulk actions available on tree nodes (any dimension level) */
 export type TreeAction =

@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Star, Archive, Trash2 } from 'lucide-react';
+import { Star, Archive, Trash2, Clock } from 'lucide-react';
 import type { SystemGroupKey } from '@/types';
 
 interface SystemGroupCounts {
   starred: number;
   archived: number;
   trash: number;
+  snoozed: number;
 }
 
 interface SystemGroupsProps {
@@ -20,15 +21,16 @@ interface SystemGroupsProps {
 
 const GROUP_CONFIG: { key: SystemGroupKey; label: string; icon: typeof Star }[] = [
   { key: 'starred', label: 'Starred', icon: Star },
+  { key: 'snoozed', label: 'Snoozed', icon: Clock },
   { key: 'archived', label: 'Archived', icon: Archive },
   { key: 'trash', label: 'Trash', icon: Trash2 },
 ];
 
 export function SystemGroups({ selectedGroup, onSelectGroup, refreshKey, selectedAccountId }: SystemGroupsProps) {
-  const [counts, setCounts] = useState<SystemGroupCounts>({ starred: 0, archived: 0, trash: 0 });
+  const [counts, setCounts] = useState<SystemGroupCounts>({ starred: 0, archived: 0, trash: 0, snoozed: 0 });
 
   const fetchCounts = useCallback(async () => {
-    setCounts({ starred: 0, archived: 0, trash: 0 }); // reset stale counts
+    setCounts({ starred: 0, archived: 0, trash: 0, snoozed: 0 }); // reset stale counts
     try {
       const url = new URL('/api/emails/system-groups', window.location.origin);
       if (selectedAccountId) {

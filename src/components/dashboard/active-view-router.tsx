@@ -448,7 +448,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
               ? `No emails in ${selectedCategory}`
               : selectedSystemGroup
                 ? `No ${
-                    { starred: 'starred', archived: 'archived', trash: 'trash' }[selectedSystemGroup]
+                    { starred: 'starred', archived: 'archived', trash: 'trash', snoozed: 'snoozed' }[selectedSystemGroup]
                   } emails`
                 : 'No emails match your current filters'}
           </p>

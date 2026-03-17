@@ -2,10 +2,78 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { syncEmails } from '@/lib/gmail/sync';
 import { categorizeEmails, getUncategorizedEmails } from '@/lib/ai/categorize';
+import { getGmailClient } from '@/lib/gmail/client';
 import type { GmailAccount } from '@/types';
 
 const MAX_ACCOUNTS_PER_RUN = 5;
 const STALE_JOB_MINUTES = 10;
+
+/**
+ * Un-snooze emails whose snoozed_until timestamp has passed.
+ * Restores them to the inbox in both Gmail and the DB.
+ */
+async function processExpiredSnoozes(serviceClient: ReturnType<typeof createServiceClient>) {
+  const now = new Date().toISOString();
+
+  const { data: snoozedEmails, error } = await serviceClient
+    .from('emails')
+    .select('id, gmail_message_id, gmail_account_id, label_ids, gmail_accounts!inner(user_id, access_token_encrypted, refresh_token_encrypted, token_expires_at, id, email, history_id, last_sync_at, sync_enabled, granted_scope, created_at)')
+    .not('snoozed_until', 'is', null)
+    .lte('snoozed_until', now)
+    .limit(50);
+
+  if (error) {
+    console.error('[cron] Failed to query expired snoozes:', error);
+    return 0;
+  }
+
+  if (!snoozedEmails || snoozedEmails.length === 0) {
+    return 0;
+  }
+
+  console.log(`[cron] Processing ${snoozedEmails.length} expired snoozes`);
+
+  let restored = 0;
+  for (const email of snoozedEmails) {
+    try {
+      const account = email.gmail_accounts as unknown as GmailAccount;
+      const gmailMessageId = email.gmail_message_id as string;
+
+      // Re-add INBOX label and mark unread in Gmail (single API call)
+      const gmail = await getGmailClient(account);
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: gmailMessageId,
+        requestBody: { addLabelIds: ['INBOX', 'UNREAD'] },
+      });
+
+      // Update DB: clear snooze, add INBOX label, mark as unread
+      const currentLabels = (email.label_ids as string[]) ?? [];
+      const newLabels = [...currentLabels];
+      if (!newLabels.includes('INBOX')) newLabels.push('INBOX');
+
+      const { error: updateErr } = await serviceClient
+        .from('emails')
+        .update({
+          snoozed_until: null,
+          label_ids: newLabels,
+          is_read: false,
+        })
+        .eq('id', email.id);
+
+      if (updateErr) {
+        console.error(`[cron] Failed to un-snooze email ${email.id}:`, updateErr);
+      } else {
+        restored++;
+      }
+    } catch (err) {
+      console.error(`[cron] Gmail un-snooze failed for email ${email.id}:`, err);
+    }
+  }
+
+  console.log(`[cron] Un-snoozed ${restored}/${snoozedEmails.length} emails`);
+  return restored;
+}
 
 export async function GET(request: NextRequest) {
   // Verify cron secret (guard against undefined CRON_SECRET)
@@ -17,6 +85,9 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = createServiceClient();
   const results: Record<string, unknown>[] = [];
+
+  // ── Un-snooze expired emails BEFORE syncing ──
+  const unsnoozed = await processExpiredSnoozes(serviceClient);
 
   // Clean up stale running jobs (crashed during previous run)
   const staleThreshold = new Date(
@@ -141,5 +212,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ results });
+  return NextResponse.json({ unsnoozed, results });
 }

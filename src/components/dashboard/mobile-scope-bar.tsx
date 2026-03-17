@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, Inbox, Star, Archive, Trash2, Folder } from 'lucide-react';
+import { ChevronDown, Inbox, Star, Archive, Trash2, Clock, Folder } from 'lucide-react';
 import type { SystemGroupKey } from '@/types';
 
 interface MobileScopeBarProps {
@@ -14,6 +14,7 @@ interface MobileScopeBarProps {
 
 const SYSTEM_GROUP_META: Record<SystemGroupKey, { label: string; icon: typeof Star }> = {
   starred: { label: 'Starred', icon: Star },
+  snoozed: { label: 'Snoozed', icon: Clock },
   archived: { label: 'Archived', icon: Archive },
   trash: { label: 'Trash', icon: Trash2 },
 };

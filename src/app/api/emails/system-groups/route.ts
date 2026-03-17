@@ -40,8 +40,8 @@ export async function GET(request: NextRequest) {
     accountIds = [accountIdParam];
   }
 
-  // Run all three counts in parallel
-  const [starredRes, archivedRes, trashRes] = await Promise.all([
+  // Run all four counts in parallel
+  const [starredRes, archivedRes, trashRes, snoozedRes] = await Promise.all([
     serviceClient
       .from('emails')
       .select('id', { count: 'exact', head: true })
@@ -53,19 +53,26 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .in('gmail_account_id', accountIds)
       .not('label_ids', 'cs', '{"INBOX"}')
-      .not('label_ids', 'cs', '{"TRASH"}'),
+      .not('label_ids', 'cs', '{"TRASH"}')
+      .is('snoozed_until', null),
     serviceClient
       .from('emails')
       .select('id', { count: 'exact', head: true })
       .in('gmail_account_id', accountIds)
       .contains('label_ids', ['TRASH']),
+    serviceClient
+      .from('emails')
+      .select('id', { count: 'exact', head: true })
+      .in('gmail_account_id', accountIds)
+      .not('snoozed_until', 'is', null),
   ]);
 
-  if (starredRes.error || archivedRes.error || trashRes.error) {
+  if (starredRes.error || archivedRes.error || trashRes.error || snoozedRes.error) {
     console.error('[system-groups] Count query failed:', {
       starred: starredRes.error,
       archived: archivedRes.error,
       trash: trashRes.error,
+      snoozed: snoozedRes.error,
     });
     return NextResponse.json({ error: 'Failed to fetch counts' }, { status: 500 });
   }
@@ -75,6 +82,7 @@ export async function GET(request: NextRequest) {
       starred: starredRes.count ?? 0,
       archived: archivedRes.count ?? 0,
       trash: trashRes.count ?? 0,
+      snoozed: snoozedRes.count ?? 0,
     },
   });
 }

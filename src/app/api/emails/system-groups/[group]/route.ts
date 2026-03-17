@@ -4,7 +4,7 @@ import type { SystemGroupKey } from '@/types';
 
 type Params = { params: Promise<{ group: string }> };
 
-const VALID_GROUPS: SystemGroupKey[] = ['starred', 'archived', 'trash'];
+const VALID_GROUPS: SystemGroupKey[] = ['starred', 'archived', 'trash', 'snoozed'];
 
 /**
  * GET /api/emails/system-groups/[group] — list emails in a system group.
@@ -68,10 +68,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     case 'archived':
       query = query
         .not('label_ids', 'cs', '{"INBOX"}')
-        .not('label_ids', 'cs', '{"TRASH"}');
+        .not('label_ids', 'cs', '{"TRASH"}')
+        .is('snoozed_until', null);
       break;
     case 'trash':
       query = query.contains('label_ids', ['TRASH']);
+      break;
+    case 'snoozed':
+      query = query.not('snoozed_until', 'is', null);
       break;
   }
 

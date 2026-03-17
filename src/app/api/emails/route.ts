@@ -188,6 +188,7 @@ async function handleGroupQuery(
     .select(selectFields)
     .in('gmail_account_id', accountIds)
     .contains('label_ids', ['INBOX'])
+    .is('snoozed_until', null)
     .order('received_at', { ascending: false })
     .limit(GROUP_QUERY_LIMIT);
 
@@ -339,6 +340,7 @@ async function handleLeafQuery(
     `)
     .in('gmail_account_id', accountIds)
     .contains('label_ids', ['INBOX'])
+    .is('snoozed_until', null)
     .order('received_at', { ascending: false })
     .range(offset, offset + limit - 1);
 

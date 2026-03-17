@@ -254,6 +254,15 @@ export async function unstarEmails(account: GmailAccount, gmailMessageIds: strin
   return { unstarred: gmailMessageIds.length - failed, failed };
 }
 
+export async function unarchiveEmail(account: GmailAccount, gmailMessageId: string) {
+  const gmail = await getGmailClient(account);
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: gmailMessageId,
+    requestBody: { addLabelIds: ['INBOX'] },
+  });
+}
+
 export async function untrashEmail(account: GmailAccount, gmailMessageId: string) {
   const gmail = await getGmailClient(account);
   await gmail.users.messages.untrash({ userId: 'me', id: gmailMessageId });

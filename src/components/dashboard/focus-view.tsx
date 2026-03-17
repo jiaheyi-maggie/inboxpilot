@@ -5,6 +5,7 @@ import {
   Archive,
   SkipForward,
   Star,
+  Clock,
   ExternalLink,
   CheckCircle2,
   HelpCircle,
@@ -13,6 +14,8 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FocusCard } from './focus-card';
+import { SnoozePicker } from './snooze-picker';
+import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory } from '@/types';
 
 // ── Props ──
@@ -46,10 +49,11 @@ export function FocusView({
     });
   }, [emails]);
 
-  // Track which emails have been processed (archived, starred, or skipped)
+  // Track which emails have been processed (archived, starred, snoozed, or skipped)
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSnooze, setShowSnooze] = useState(false);
 
   // The queue is sorted emails minus processed ones
   const queue = useMemo(() => {
@@ -109,8 +113,25 @@ export function FocusView({
     setProcessedIds((prev) => new Set(prev).add(emailId));
     const success = await executeAction(emailId, 'archive');
     if (success) {
-      toast.success('Archived', {
+      showUndoToast({
+        label: 'Archived',
         description: emailSubject || '(no subject)',
+        onUndo: async () => {
+          const res = await fetch(`/api/emails/${emailId}/actions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'unarchive' }),
+          });
+          if (!res.ok) throw new Error('Undo failed');
+        },
+        onUndoComplete: () => {
+          setProcessedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(emailId);
+            return next;
+          });
+          onEmailMoved();
+        },
       });
       onEmailMoved();
     } else {
@@ -131,8 +152,25 @@ export function FocusView({
     setProcessedIds((prev) => new Set(prev).add(emailId));
     const success = await executeAction(emailId, 'star');
     if (success) {
-      toast.success('Starred', {
+      showUndoToast({
+        label: 'Starred',
         description: emailSubject || '(no subject)',
+        onUndo: async () => {
+          const res = await fetch(`/api/emails/${emailId}/actions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'unstar' }),
+          });
+          if (!res.ok) throw new Error('Undo failed');
+        },
+        onUndoComplete: () => {
+          setProcessedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(emailId);
+            return next;
+          });
+          onEmailMoved();
+        },
       });
       onEmailMoved();
     } else {
@@ -155,6 +193,67 @@ export function FocusView({
     if (!currentEmail) return;
     onSelectEmail(currentEmail.id);
   }, [currentEmail, onSelectEmail]);
+
+  const handleSnooze = useCallback(
+    async (until: string) => {
+      setShowSnooze(false);
+      if (!currentEmail || actionLoading) return;
+      const emailId = currentEmail.id;
+      const emailSubject = currentEmail.subject;
+      setProcessedIds((prev) => new Set(prev).add(emailId));
+      setActionLoading(true);
+      try {
+        const res = await fetch(`/api/emails/${emailId}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'snooze', until }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error ?? 'Snooze failed');
+          setProcessedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(emailId);
+            return next;
+          });
+          return;
+        }
+        const snoozeDate = new Date(until);
+        const label = `Snoozed until ${snoozeDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} ${snoozeDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+        showUndoToast({
+          label,
+          description: emailSubject || '(no subject)',
+          onUndo: async () => {
+            const res = await fetch(`/api/emails/${emailId}/actions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'unsnooze' }),
+            });
+            if (!res.ok) throw new Error('Undo failed');
+          },
+          onUndoComplete: () => {
+            setProcessedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(emailId);
+              return next;
+            });
+            onEmailMoved();
+          },
+        });
+        onEmailMoved();
+      } catch {
+        toast.error('Network error');
+        setProcessedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(emailId);
+          return next;
+        });
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [currentEmail, actionLoading, onEmailMoved],
+  );
 
   // ── Keyboard shortcuts ──
 
@@ -181,6 +280,10 @@ export function FocusView({
         case 'f':
           e.preventDefault();
           handleStar();
+          break;
+        case 'z':
+          e.preventDefault();
+          setShowSnooze(true);
           break;
         case 'Enter':
         case ' ':
@@ -301,7 +404,7 @@ export function FocusView({
 
       {/* Action buttons */}
       <div className="px-4 pb-4 flex-shrink-0">
-        <div className="flex items-center justify-center gap-3 max-w-lg mx-auto">
+        <div className="flex items-center justify-center gap-2 max-w-lg mx-auto">
           <Button
             variant="outline"
             size="lg"
@@ -321,6 +424,16 @@ export function FocusView({
           >
             <Archive className="h-4 w-4" />
             Archive
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1 gap-2"
+            onClick={() => setShowSnooze(true)}
+            disabled={actionLoading}
+          >
+            <Clock className="h-4 w-4" />
+            Snooze
           </Button>
           <Button
             variant="outline"
@@ -351,6 +464,14 @@ export function FocusView({
         </div>
       </div>
 
+      {/* Snooze picker modal */}
+      {showSnooze && (
+        <SnoozePicker
+          onSelect={handleSnooze}
+          onClose={() => setShowSnooze(false)}
+        />
+      )}
+
       {/* Keyboard shortcuts help overlay */}
       {showHelp && (
         <div
@@ -377,6 +498,7 @@ export function FocusView({
                 { keys: ['Right arrow', 'E'], action: 'Archive' },
                 { keys: ['Left arrow', 'S'], action: 'Skip' },
                 { keys: ['Up arrow', 'F'], action: 'Star' },
+                { keys: ['Z'], action: 'Snooze' },
                 { keys: ['Enter', 'Space'], action: 'Open email' },
                 { keys: ['?'], action: 'Toggle this help' },
                 { keys: ['Esc'], action: 'Close help' },

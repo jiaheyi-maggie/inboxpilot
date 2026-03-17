@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import { trashEmails, archiveEmails, markAsReadBulk, markAsUnreadBulk, starEmails, unstarEmails } from '@/lib/gmail/client';
+import { trashEmails, archiveEmails, markAsReadBulk, markAsUnreadBulk, starEmails, unstarEmails, untrashEmails } from '@/lib/gmail/client';
+import { unarchiveEmail } from '@/lib/gmail/client';
 import { DIMENSIONS } from '@/lib/grouping/engine';
 import { partitionByGmailId, buildActionResult } from '@/lib/email-utils';
 import type { GmailAccount, DimensionKey, TreeActionRequest } from '@/types';
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
   const { action, filters, newCategory, configId, emailIds } = body;
 
   // --- Validate inputs ---
-  const validActions = ['trash', 'archive', 'mark_read', 'mark_unread', 'reassign', 'star', 'unstar'] as const;
+  const validActions = ['trash', 'archive', 'unarchive', 'mark_read', 'mark_unread', 'reassign', 'star', 'unstar', 'restore'] as const;
   if (!action || !(validActions as readonly string[]).includes(action)) {
     return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 });
   }
@@ -604,6 +605,48 @@ async function handleDirectIds(
         }
         await serviceClient.from('emails').update({ is_read: false }).in('id', read.map((r) => r.id));
         return NextResponse.json(buildActionResult('mark_unread', { affected: totalUpdated, failed: totalFailed }, null).body);
+      }
+      case 'unarchive': {
+        // Reverse of archive: add INBOX label back in Gmail + DB
+        let totalRestored = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const results = await Promise.allSettled(
+            acctRows.map((r) => unarchiveEmail(acct, r.gmail_message_id!))
+          );
+          totalRestored += results.filter((r) => r.status === 'fulfilled').length;
+          totalFailed += results.filter((r) => r.status === 'rejected').length;
+        }
+        await Promise.allSettled(
+          (rows as unknown as Row[]).map((e) => {
+            const labels = [...(e.label_ids ?? [])];
+            if (!labels.includes('INBOX')) labels.push('INBOX');
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id);
+          })
+        );
+        return NextResponse.json(buildActionResult('unarchive', { affected: totalRestored, failed: totalFailed }, null).body);
+      }
+      case 'restore': {
+        // Reverse of trash: untrash in Gmail, remove TRASH label, add INBOX back
+        let totalRestored = 0;
+        let totalFailed = 0;
+        for (const [acctId, acctRows] of rowsByAccount) {
+          const acct = accountMap.get(acctId);
+          if (!acct || acct.granted_scope !== 'gmail.modify') { totalFailed += acctRows.length; continue; }
+          const result = await untrashEmails(acct, acctRows.map((r) => r.gmail_message_id!));
+          totalRestored += result.restored;
+          totalFailed += result.failed;
+        }
+        await Promise.allSettled(
+          (rows as unknown as Row[]).map((e) => {
+            const labels = (e.label_ids ?? []).filter((l) => l !== 'TRASH');
+            if (!labels.includes('INBOX')) labels.push('INBOX');
+            return serviceClient.from('emails').update({ label_ids: labels }).eq('id', e.id);
+          })
+        );
+        return NextResponse.json(buildActionResult('restore', { affected: totalRestored, failed: totalFailed }, null).body);
       }
       default:
         return NextResponse.json({ error: `Unsupported bulk action: ${action}` }, { status: 400 });

@@ -26,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { CategoryBadge } from './category-badge';
+import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory, UserCategory } from '@/types';
 
 interface DraggableEmailRowProps {
@@ -107,7 +108,20 @@ export function DraggableEmailRow({
           return;
         }
         setExiting(true);
-        toast.success(action === 'archive' ? 'Archived' : 'Moved to trash');
+        const reverseAction = action === 'archive' ? 'unarchive' : 'restore';
+        showUndoToast({
+          label: action === 'archive' ? 'Archived' : 'Moved to trash',
+          description: email.subject || '(no subject)',
+          onUndo: async () => {
+            const res = await fetch(`/api/emails/${email.id}/actions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: reverseAction }),
+            });
+            if (!res.ok) throw new Error('Undo failed');
+          },
+          onUndoComplete: () => onEmailMoved(),
+        });
         setTimeout(() => onEmailMoved(), 300);
       } catch {
         toast.error('Network error');
@@ -115,7 +129,7 @@ export function DraggableEmailRow({
         setLoading(false);
       }
     },
-    [email.id, onEmailMoved]
+    [email.id, email.subject, onEmailMoved]
   );
 
   // Long-press support for mobile: track pointer for synthetic contextmenu

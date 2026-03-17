@@ -7,6 +7,7 @@ import {
   trashEmail,
   untrashEmail,
   archiveEmail,
+  unarchiveEmail,
   starEmail,
   unstarEmail,
 } from '@/lib/gmail/client';
@@ -31,9 +32,24 @@ export async function POST(
   const body = await request.json();
   const action = body.action as EmailAction;
 
-  const validActions: EmailAction[] = ['mark_read', 'mark_unread', 'trash', 'archive', 'star', 'unstar', 'restore'];
+  const validActions: EmailAction[] = ['mark_read', 'mark_unread', 'trash', 'archive', 'unarchive', 'star', 'unstar', 'restore', 'snooze', 'unsnooze'];
   if (!action || !validActions.includes(action)) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+  }
+
+  // Snooze requires a valid future `until` timestamp
+  const snoozeUntil = body.until as string | undefined;
+  if (action === 'snooze') {
+    if (!snoozeUntil) {
+      return NextResponse.json({ error: 'Missing `until` timestamp for snooze' }, { status: 400 });
+    }
+    const parsedSnoozeDate = new Date(snoozeUntil);
+    if (isNaN(parsedSnoozeDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid snooze timestamp' }, { status: 400 });
+    }
+    if (parsedSnoozeDate.getTime() <= Date.now()) {
+      return NextResponse.json({ error: 'Snooze time must be in the future' }, { status: 400 });
+    }
   }
 
   const serviceClient = createServiceClient();
@@ -224,6 +240,20 @@ export async function POST(
         return NextResponse.json(unstarRes.body, { status: unstarRes.status });
       }
 
+      case 'unarchive': {
+        await unarchiveEmail(accountData, gmailMessageId);
+        const currentLabelsForUnarchive = (email.label_ids as string[]) ?? [];
+        const unarchiveLabels = [...currentLabelsForUnarchive];
+        if (!unarchiveLabels.includes('INBOX')) unarchiveLabels.push('INBOX');
+        const { error: unarchiveErr } = await serviceClient
+          .from('emails')
+          .update({ label_ids: unarchiveLabels })
+          .eq('id', emailId);
+        if (unarchiveErr) console.error('[email-action] DB update label_ids for unarchive failed:', unarchiveErr);
+        const unarchiveRes = buildActionResult('unarchive', { affected: 1, failed: 0 }, unarchiveErr?.message ?? null);
+        return NextResponse.json(unarchiveRes.body, { status: unarchiveRes.status });
+      }
+
       case 'restore': {
         await untrashEmail(accountData, gmailMessageId);
         const currentLabelsForRestore = (email.label_ids as string[]) ?? [];
@@ -236,6 +266,41 @@ export async function POST(
         if (restoreErr) console.error('[email-action] DB update label_ids for restore failed:', restoreErr);
         const restoreRes = buildActionResult('restore', { affected: 1, failed: 0 }, restoreErr?.message ?? null);
         return NextResponse.json(restoreRes.body, { status: restoreRes.status });
+      }
+
+      case 'snooze': {
+        // Remove from inbox in Gmail (like archive)
+        await archiveEmail(accountData, gmailMessageId);
+        const currentLabelsForSnooze = (email.label_ids as string[]) ?? [];
+        const snoozeLabels = currentLabelsForSnooze.filter((l: string) => l !== 'INBOX');
+        const { error: snoozeErr } = await serviceClient
+          .from('emails')
+          .update({
+            label_ids: snoozeLabels,
+            snoozed_until: snoozeUntil!,
+          })
+          .eq('id', emailId);
+        if (snoozeErr) console.error('[email-action] DB update for snooze failed:', snoozeErr);
+        const snoozeRes = buildActionResult('snooze', { affected: 1, failed: 0 }, snoozeErr?.message ?? null);
+        return NextResponse.json(snoozeRes.body, { status: snoozeRes.status });
+      }
+
+      case 'unsnooze': {
+        // Restore to inbox in Gmail
+        await unarchiveEmail(accountData, gmailMessageId);
+        const currentLabelsForUnsnooze = (email.label_ids as string[]) ?? [];
+        const unsnoozeLabels = [...currentLabelsForUnsnooze];
+        if (!unsnoozeLabels.includes('INBOX')) unsnoozeLabels.push('INBOX');
+        const { error: unsnoozeErr } = await serviceClient
+          .from('emails')
+          .update({
+            label_ids: unsnoozeLabels,
+            snoozed_until: null,
+          })
+          .eq('id', emailId);
+        if (unsnoozeErr) console.error('[email-action] DB update for unsnooze failed:', unsnoozeErr);
+        const unsnoozeRes = buildActionResult('unsnooze', { affected: 1, failed: 0 }, unsnoozeErr?.message ?? null);
+        return NextResponse.json(unsnoozeRes.body, { status: unsnoozeRes.status });
       }
 
       default:

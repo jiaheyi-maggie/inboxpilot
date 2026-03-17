@@ -40,13 +40,14 @@ export async function GET(request: NextRequest) {
     accountIds = [accountIdParam];
   }
 
-  // Fetch all unread inbox emails (exclude trashed/archived)
+  // Fetch all unread inbox emails (exclude trashed/archived/snoozed)
   const { data: emails, error } = await serviceClient
     .from('emails')
     .select('*, email_categories(*)')
     .in('gmail_account_id', accountIds)
     .eq('is_read', false)
     .contains('label_ids', ['INBOX'])
+    .is('snoozed_until', null)
     .order('received_at', { ascending: false })
     .limit(100);
 

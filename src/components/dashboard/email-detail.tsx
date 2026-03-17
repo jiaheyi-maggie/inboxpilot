@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import {
   ArrowLeft,
   Archive,
+  Clock,
   ExternalLink,
   Loader2,
   Mail,
@@ -33,7 +34,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CategoryPicker } from './category-picker';
+import { SnoozePicker } from './snooze-picker';
 import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
+import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory, EmailAction } from '@/types';
 
 interface EmailDetailProps {
@@ -53,6 +56,7 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
   const [actionLoading, setActionLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [showRuleDialog, setShowRuleDialog] = useState(false);
+  const [showSnooze, setShowSnooze] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
 
@@ -129,33 +133,59 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
     observerRef.current = observer;
   }, []);
 
+  const callAction = useCallback(
+    async (action: EmailAction, extra?: Record<string, unknown>) => {
+      const res = await fetch(`/api/emails/${email.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `Action failed (${res.status})`);
+      }
+    },
+    [email.id],
+  );
+
   const executeAction = useCallback(
     async (action: EmailAction) => {
       setActionLoading(true);
       try {
-        const res = await fetch(`/api/emails/${email.id}/actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          toast.error(data.error ?? `Action failed (${res.status})`);
-          return;
-        }
+        await callAction(action);
         switch (action) {
           case 'trash':
-            toast.success('Moved to trash');
+            showUndoToast({
+              label: 'Moved to trash',
+              description: email.subject || '(no subject)',
+              onUndo: () => callAction('restore'),
+              onUndoComplete: () => onRemoved(email.id),
+            });
             onRemoved(email.id);
             break;
           case 'archive':
-            toast.success('Archived');
+            showUndoToast({
+              label: 'Archived',
+              description: email.subject || '(no subject)',
+              onUndo: () => callAction('unarchive'),
+              onUndoComplete: () => onRemoved(email.id),
+            });
             onRemoved(email.id);
             break;
           case 'star':
+            showUndoToast({
+              label: 'Starred',
+              onUndo: () => callAction('unstar'),
+              onUndoComplete: () => onUpdated(email.id, { is_starred: false }),
+            });
             onUpdated(email.id, { is_starred: true });
             break;
           case 'unstar':
+            showUndoToast({
+              label: 'Unstarred',
+              onUndo: () => callAction('star'),
+              onUndoComplete: () => onUpdated(email.id, { is_starred: true }),
+            });
             onUpdated(email.id, { is_starred: false });
             break;
           case 'mark_read':
@@ -169,13 +199,37 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
             onRemoved(email.id);
             break;
         }
-      } catch {
-        toast.error('Network error');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Network error');
       } finally {
         setActionLoading(false);
       }
     },
-    [email.id, onRemoved, onUpdated]
+    [email.id, email.subject, onRemoved, onUpdated, callAction]
+  );
+
+  const handleSnooze = useCallback(
+    async (until: string) => {
+      setShowSnooze(false);
+      setActionLoading(true);
+      try {
+        await callAction('snooze', { until });
+        const snoozeDate = new Date(until);
+        const label = `Snoozed until ${snoozeDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} ${snoozeDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+        showUndoToast({
+          label,
+          description: email.subject || '(no subject)',
+          onUndo: () => callAction('unsnooze'),
+          onUndoComplete: () => onRemoved(email.id),
+        });
+        onRemoved(email.id);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Snooze failed');
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [email.id, email.subject, onRemoved, callAction],
   );
 
   const handleCategoryChange = useCallback(
@@ -259,6 +313,7 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
                 size="icon"
                 className="h-8 w-8"
                 onClick={() => executeAction('archive')}
+                title="Archive"
               >
                 <Archive className="h-4 w-4 text-muted-foreground" />
               </Button>
@@ -266,7 +321,17 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
+                onClick={() => setShowSnooze(true)}
+                title="Snooze"
+              >
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
                 onClick={() => executeAction('trash')}
+                title="Trash"
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground" />
               </Button>
@@ -422,6 +487,13 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         <QuickRuleDialog
           email={email}
           onClose={() => setShowRuleDialog(false)}
+        />
+      )}
+
+      {showSnooze && (
+        <SnoozePicker
+          onSelect={handleSnooze}
+          onClose={() => setShowSnooze(false)}
         />
       )}
     </div>

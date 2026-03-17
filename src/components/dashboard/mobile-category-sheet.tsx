@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { Inbox, Star, Archive, Trash2, Folder, Mail, Check } from 'lucide-react';
+import { Inbox, Star, Archive, Trash2, Clock, Folder, Mail, Check } from 'lucide-react';
 import type { TreeNode, SystemGroupKey, GmailAccount } from '@/types';
 
 /** Minimal account info for rendering */
@@ -22,6 +22,7 @@ interface MobileCategorySheetProps {
 
 const SYSTEM_GROUPS: { key: SystemGroupKey; label: string; icon: typeof Star }[] = [
   { key: 'starred', label: 'Starred', icon: Star },
+  { key: 'snoozed', label: 'Snoozed', icon: Clock },
   { key: 'archived', label: 'Archived', icon: Archive },
   { key: 'trash', label: 'Trash', icon: Trash2 },
 ];
