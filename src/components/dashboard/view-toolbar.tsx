@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { useView } from '@/contexts/view-context';
+import { useViewState } from '@/contexts/view-context';
 import { DIMENSIONS } from '@/lib/grouping/engine';
 import type { DimensionKey, ViewFilter, ViewSort } from '@/types';
 
@@ -103,7 +103,7 @@ export function ViewToolbar() {
     groupBy,
     setGroupBy,
     viewType,
-  } = useView();
+  } = useViewState();
 
   const hasActiveControls = filters.length > 0 || sort.length > 1 ||
     (sort.length === 1 && sort[0].field !== 'received_at');

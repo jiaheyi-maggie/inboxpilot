@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
-import { ViewProvider, useView } from '@/contexts/view-context';
+import { ViewProvider, useView, type RefreshScope } from '@/contexts/view-context';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { MobileScopeBar } from '@/components/dashboard/mobile-scope-bar';
 import { MobileCategorySheet } from '@/components/dashboard/mobile-category-sheet';
@@ -88,7 +88,7 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
 // ── Inner layout component that can use useView() ──
 
 function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
-  const { refreshKey, sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId, searchQuery, clearSearch } = useView();
+  const { sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId, searchQuery, clearSearch } = useView();
 
   // Escape key clears search first, then category/system group selection
   useEffect(() => {
@@ -229,13 +229,13 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
 
   // Debounced refresh for realtime events — triggerRefresh() increments all scoped keys,
   // which causes the scoped effects above to re-fetch sidebar/unread/content automatically.
-  const debouncedRefresh = useCallback((showToast?: { title: string; description: string }) => {
+  const debouncedRefresh = useCallback((opts?: { toast?: { title: string; description: string }; scope?: RefreshScope | RefreshScope[] }) => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
-      if (showToast) {
-        toast.info(showToast.title, { description: showToast.description });
+      if (opts?.toast) {
+        toast.info(opts.toast.title, { description: opts.toast.description });
       }
-      triggerRefresh();
+      triggerRefresh(opts?.scope);
     }, 500);
   }, [triggerRefresh]);
 
@@ -250,9 +250,12 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
         (payload) => {
           const subject = (payload.new as Record<string, unknown>)?.subject as string;
           if (initialLoadDoneRef.current) {
-            debouncedRefresh({ title: 'New email received', description: subject ?? 'New email' });
+            debouncedRefresh({
+              toast: { title: 'New email received', description: subject ?? 'New email' },
+              scope: ['sidebar', 'unread', 'counts'],
+            });
           } else {
-            debouncedRefresh();
+            debouncedRefresh({ scope: ['sidebar', 'unread', 'counts'] });
           }
         },
       )
@@ -271,7 +274,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
             );
             if (!hasVisibleChange) return;
           }
-          debouncedRefresh();
+          debouncedRefresh({ scope: ['content', 'counts'] });
         },
       )
       .subscribe();

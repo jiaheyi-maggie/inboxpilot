@@ -49,8 +49,7 @@ export function AppShell({ userEmail, accounts, children }: AppShellProps) {
 
   const handleSyncComplete = useCallback(() => {
     window.dispatchEvent(new Event('inboxpilot:sync-complete'));
-    router.refresh();
-  }, [router]);
+  }, []);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();

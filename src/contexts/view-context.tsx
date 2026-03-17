@@ -74,7 +74,6 @@ interface ViewContextValue {
   clearSearch: () => void;
 
   // ── Refresh trigger ──
-  refreshKey: number;
   sidebarRefreshKey: number;
   contentRefreshKey: number;
   unreadRefreshKey: number;
@@ -84,13 +83,27 @@ interface ViewContextValue {
 
 export type RefreshScope = 'sidebar' | 'content' | 'unread' | 'counts';
 
-const ViewContext = createContext<ViewContextValue | null>(null);
+const ViewStateContext = createContext<any>(null);
+const ViewRefreshContext = createContext<any>(null);
 
 // ── Hook ───────────────────────────────────────────────────────
 
 export function useView(): ViewContextValue {
-  const ctx = useContext(ViewContext);
-  if (!ctx) throw new Error('useView must be used within a ViewProvider');
+  const state = useContext(ViewStateContext);
+  const refresh = useContext(ViewRefreshContext);
+  if (!state || !refresh) throw new Error('useView must be used within a ViewProvider');
+  return useMemo(() => ({ ...state, ...refresh }), [state, refresh]);
+}
+
+export function useViewState(): ViewContextValue {
+  const ctx = useContext(ViewStateContext);
+  if (!ctx) throw new Error("useViewState must be used within a ViewProvider");
+  return ctx;
+}
+
+export function useViewRefresh() {
+  const ctx = useContext(ViewRefreshContext);
+  if (!ctx) throw new Error("useViewRefresh must be used within a ViewProvider");
   return ctx;
 }
 
@@ -129,16 +142,12 @@ export function ViewProvider({
   const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
 
   // Refresh trigger — combined key (backward compat) + scoped keys
-  const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [contentRefreshKey, setContentRefreshKey] = useState(0);
   const [unreadRefreshKey, setUnreadRefreshKey] = useState(0);
   const [countsRefreshKey, setCountsRefreshKey] = useState(0);
 
   const triggerRefresh = useCallback((scope?: RefreshScope | RefreshScope[]) => {
-    // Always increment the combined key for backward compat
-    setRefreshKey((k) => k + 1);
-
     if (!scope) {
       // No scope = refresh everything
       setSidebarRefreshKey((k) => k + 1);
@@ -170,7 +179,6 @@ export function ViewProvider({
   // Sync external refresh key changes into all counters
   useEffect(() => {
     if (externalRefreshKey > 0) {
-      setRefreshKey((k) => k + 1);
       setSidebarRefreshKey((k) => k + 1);
       setContentRefreshKey((k) => k + 1);
       setUnreadRefreshKey((k) => k + 1);
@@ -288,7 +296,6 @@ export function ViewProvider({
     setSelectedEmailId(null);
     // Trigger a content refresh to fetch search results
     setContentRefreshKey((k) => k + 1);
-    setRefreshKey((k) => k + 1);
   }, []);
 
   const clearSearch = useCallback(() => {
@@ -296,10 +303,9 @@ export function ViewProvider({
     setSearchFilters(null);
     // Trigger a content refresh to go back to normal view
     setContentRefreshKey((k) => k + 1);
-    setRefreshKey((k) => k + 1);
   }, []);
 
-  const value = useMemo<ViewContextValue>(
+  const value = useMemo(
     () => ({
       viewConfig,
       viewType,
@@ -324,12 +330,6 @@ export function ViewProvider({
       searchFilters,
       setSearch,
       clearSearch,
-      refreshKey,
-      sidebarRefreshKey,
-      contentRefreshKey,
-      unreadRefreshKey,
-      countsRefreshKey,
-      triggerRefresh,
     }),
     [
       viewConfig,
@@ -354,14 +354,19 @@ export function ViewProvider({
       searchFilters,
       setSearch,
       clearSearch,
-      refreshKey,
-      sidebarRefreshKey,
-      contentRefreshKey,
-      unreadRefreshKey,
-      countsRefreshKey,
-      triggerRefresh,
     ]
   );
 
-  return <ViewContext value={value}>{children}</ViewContext>;
+  const refreshValue = useMemo(
+    () => ({sidebarRefreshKey,contentRefreshKey,unreadRefreshKey,countsRefreshKey,triggerRefresh}),
+    [sidebarRefreshKey,contentRefreshKey,unreadRefreshKey,countsRefreshKey,triggerRefresh]
+  );
+
+  return (
+    <ViewStateContext value={value}>
+      <ViewRefreshContext value={refreshValue}>
+        {children}
+      </ViewRefreshContext>
+    </ViewStateContext>
+  );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronRight, Inbox, Search, X } from 'lucide-react';
-import { useView } from '@/contexts/view-context';
+import { useViewState } from '@/contexts/view-context';
 
 interface ViewBreadcrumbProps {
   emailCount: number;
@@ -28,7 +28,7 @@ export function ViewBreadcrumb({
     setSelectedEmailId,
     searchQuery,
     clearSearch,
-  } = useView();
+  } = useViewState();
 
   const activeLabel = selectedCategory
     ?? (selectedSystemGroup ? SYSTEM_GROUP_LABELS[selectedSystemGroup] ?? selectedSystemGroup : null);

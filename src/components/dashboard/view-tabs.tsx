@@ -1,7 +1,7 @@
 'use client';
 
 import { List, Columns3, FolderTree, Crosshair } from 'lucide-react';
-import { useView } from '@/contexts/view-context';
+import { useViewState } from '@/contexts/view-context';
 import type { ViewType } from '@/types';
 
 const VIEW_TAB_CONFIG: { type: ViewType; label: string; icon: typeof List; disabled?: boolean; tooltip?: string }[] = [
@@ -12,7 +12,7 @@ const VIEW_TAB_CONFIG: { type: ViewType; label: string; icon: typeof List; disab
 ];
 
 export function ViewTabs() {
-  const { viewType, setViewType } = useView();
+  const { viewType, setViewType } = useViewState();
 
   return (
     <div className="flex items-center gap-1">

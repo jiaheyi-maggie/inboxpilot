@@ -6,7 +6,7 @@ import { UnreadSection } from './unread-section';
 import { SystemGroups } from './system-groups';
 import { CategoryTeachInput } from './category-teach-input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useView } from '@/contexts/view-context';
+import { useViewState, useViewRefresh } from '@/contexts/view-context';
 import type { Email, EmailWithCategory, TreeNode, UserCategory, GmailAccount } from '@/types';
 
 /** Minimal account info passed from server */
@@ -118,9 +118,9 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts, unr
     selectedAccountId,
     setSelectedAccountId,
     setSelectedEmailId,
-    refreshKey,
-    triggerRefresh,
-  } = useView();
+  } = useViewState();
+
+  const { triggerRefresh } = useViewRefresh();
 
   // Category metadata for teach inputs (id + description)
   const [categoryMeta, setCategoryMeta] = useState<Map<string, { id: string; description: string | null }>>(new Map());
@@ -314,7 +314,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts, unr
       <SystemGroups
         selectedGroup={selectedSystemGroup}
         onSelectGroup={handleSelectSystemGroup}
-        refreshKey={countsRefreshKey ?? refreshKey}
+        refreshKey={countsRefreshKey}
         selectedAccountId={selectedAccountId}
       />
 
@@ -322,7 +322,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts, unr
       <UnreadSection
         onEmailRead={handleEmailsChanged}
         onSelectEmail={handleUnreadEmailSelected}
-        refreshKey={unreadRefreshKey ?? refreshKey}
+        refreshKey={unreadRefreshKey}
         selectedAccountId={selectedAccountId}
       />
     </div>

@@ -15,7 +15,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useView } from '@/contexts/view-context';
+import { useViewState } from '@/contexts/view-context';
 import type { IntentResponse } from '@/types';
 
 // ── Types ──
@@ -256,7 +256,7 @@ export function ChatSidebar({
   currentCategory,
   onRefresh,
 }: ChatSidebarProps) {
-  const { setSearch } = useView();
+  const { setSearch } = useViewState();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);

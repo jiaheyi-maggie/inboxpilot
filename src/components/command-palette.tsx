@@ -24,7 +24,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command';
-import { useView } from '@/contexts/view-context';
+import { useViewState } from '@/contexts/view-context';
 
 interface CommandPaletteProps {
   onOpenChat: (prefill?: string) => void;
@@ -34,7 +34,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const router = useRouter();
-  const { setSelectedSystemGroup, setSearch } = useView();
+  const { setSelectedSystemGroup, setSearch } = useViewState();
 
   // Register global Cmd+K / Ctrl+K shortcut
   useEffect(() => {
