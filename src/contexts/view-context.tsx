@@ -276,8 +276,11 @@ export function ViewProvider({
 
   // Search: activating a search clears category/system group selection to show results
   const setSearch = useCallback((query: string, filters?: Record<string, unknown>) => {
-    const searchF: SearchFilters = { query, ...filters };
-    setSearchQuery(query);
+    // Guard against empty/whitespace-only queries — treat as no-op
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const searchF: SearchFilters = { query: trimmed, ...filters };
+    setSearchQuery(trimmed);
     setSearchFilters(searchF);
     // Clear navigation so the main content area shows search results
     setSelectedCategoryState(null);

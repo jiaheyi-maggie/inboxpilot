@@ -423,6 +423,12 @@ async function handleLeafQuery(
     };
   });
 
+  if (searchQuery) {
+    console.log(
+      `[emails] Search query="${searchQuery.slice(0, 50)}" returned ${emails.length} results`
+    );
+  }
+
   return NextResponse.json({ type: 'emails', data: emails });
 }
 
