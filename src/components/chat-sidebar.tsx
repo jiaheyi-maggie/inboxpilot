@@ -108,7 +108,7 @@ function parseOrderingIntent(
 
   // Quick bail: no ordering keywords at all
   const hasOrderingKeyword =
-    /\b(last|first|end|beginning|before|after|move|put|should be)\b/.test(lower);
+    /\b(last|first|end|beginning|start|front|before|after|move|put|place|set|make|should be)\b/.test(lower);
   if (!hasOrderingKeyword) return null;
 
   // Sort category names longest-first to avoid partial matches
@@ -409,7 +409,7 @@ export function ChatSidebar({
   // ── Action handlers ──
 
   const handleApplyContext = useCallback(
-    async (msgId: string, intent: IntentResponse) => {
+    async (msgId: string, intent: IntentResponse, originalUserMessage?: string) => {
       // Optimistically mark resolved to prevent double-clicks
       setMessages((prev) =>
         prev.map((m) => (m.id === msgId ? { ...m, resolved: true } : m))
@@ -474,7 +474,13 @@ export function ChatSidebar({
       // Ordering commands ("put Personal last", "move Work before Finance") should
       // reorder categories, NOT save the text as a category description.
       const categoryNames = categories.map((c) => c.name);
-      const orderingParsed = parseOrderingIntent(contextText, categoryNames);
+      // Try ordering detection on the user's original message first (it has the
+      // actionable verbs like "put", "move", "last" that the AI's summary strips out),
+      // then fall back to the AI's reformulated contextText.
+      const orderingParsed =
+        (originalUserMessage
+          ? parseOrderingIntent(originalUserMessage, categoryNames)
+          : null) ?? parseOrderingIntent(contextText, categoryNames);
 
       if (orderingParsed) {
         // This is a layout/ordering command — execute reorder, skip description save
@@ -785,7 +791,16 @@ export function ChatSidebar({
                   {msg.intent.type === 'context' && (
                     <Button
                       size="xs"
-                      onClick={() => handleApplyContext(msg.id, msg.intent!)}
+                      onClick={() => {
+                        // Find the preceding user message to get the original text
+                        // (the AI's summary strips ordering verbs like "put"/"move"/"last")
+                        const msgIdx = messages.findIndex((m) => m.id === msg.id);
+                        const precedingUserMsg =
+                          msgIdx > 0 && messages[msgIdx - 1].role === 'user'
+                            ? messages[msgIdx - 1].content
+                            : undefined;
+                        handleApplyContext(msg.id, msg.intent!, precedingUserMsg);
+                      }}
                     >
                       <Check className="h-3 w-3" />
                       Apply
