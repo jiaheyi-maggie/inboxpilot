@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { ViewProvider, useView } from '@/contexts/view-context';
 import { Sidebar } from '@/components/dashboard/sidebar';
@@ -38,8 +37,15 @@ interface DashboardClientProps {
   accounts: AccountInfo[];
 }
 
+// Realtime: fields whose changes are user-visible and warrant a UI refresh.
+// Internal bookkeeping fields (categorization_status, is_categorized, label_ids, etc.)
+// change frequently during background sync/categorize and should NOT cause re-renders.
+// Declared at module scope to avoid recreating the array on every render.
+const VISIBLE_FIELDS = ['is_read', 'is_starred', 'subject', 'snippet'] as const;
+
+const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
+
 export function DashboardClient({ viewConfig, account, accounts }: DashboardClientProps) {
-  const router = useRouter();
   const autoSyncTriggered = useRef(false);
   const [externalRefreshKey, setExternalRefreshKey] = useState(0);
 
@@ -61,12 +67,16 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
       autoSyncTriggered.current = true;
       fetch('/api/sync', { method: 'POST' })
         .then(() => {
+          // Only increment the refresh key — no router.refresh() needed.
+          // The externalRefreshKey change propagates to ViewProvider which
+          // increments all scoped refresh keys, triggering data re-fetches.
+          // Calling router.refresh() on top of that causes a redundant
+          // full RSC re-render (double render on first load).
           setExternalRefreshKey((k) => k + 1);
-          router.refresh();
         })
         .catch(() => {});
     }
-  }, [account, router]);
+  }, [account]);
 
   return (
     <ViewProvider key={viewConfig.id} initialView={viewConfig} externalRefreshKey={externalRefreshKey}>
@@ -78,7 +88,7 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
 // ── Inner layout component that can use useView() ──
 
 function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
-  const { refreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId } = useView();
+  const { refreshKey, sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId } = useView();
 
   // Escape key clears category/system group selection (global navigation shortcut)
   useEffect(() => {
@@ -158,6 +168,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
   const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadDoneRef = useRef(false);
+  const hasLoadedRef = useRef(false);
 
   const fetchRootNodes = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) setSidebarLoading(true);
@@ -187,15 +198,32 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
     }
   }, [viewConfig.id, selectedAccountId]);
 
-  // Initial load
+  // Initial load (runs once per fetchRootNodes/fetchUnreadCount identity change, e.g. account switch)
   useEffect(() => {
     fetchRootNodes(true).then(() => {
-      setTimeout(() => { initialLoadDoneRef.current = true; }, 3000);
+      setTimeout(() => {
+        initialLoadDoneRef.current = true;
+        hasLoadedRef.current = true;
+      }, 3000);
     });
     fetchUnreadCount();
-  }, [fetchRootNodes, fetchUnreadCount, refreshKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchRootNodes, fetchUnreadCount]);
 
-  // Debounced refresh for realtime events
+  // Scoped refresh: sidebar categories
+  useEffect(() => {
+    if (hasLoadedRef.current) fetchRootNodes(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebarRefreshKey]);
+
+  // Scoped refresh: unread count
+  useEffect(() => {
+    if (hasLoadedRef.current) fetchUnreadCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unreadRefreshKey]);
+
+  // Debounced refresh for realtime events — triggerRefresh() increments all scoped keys,
+  // which causes the scoped effects above to re-fetch sidebar/unread/content automatically.
   const debouncedRefresh = useCallback((showToast?: { title: string; description: string }) => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
@@ -203,10 +231,8 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
         toast.info(showToast.title, { description: showToast.description });
       }
       triggerRefresh();
-      fetchRootNodes(false);
-      fetchUnreadCount();
     }, 500);
-  }, [fetchRootNodes, fetchUnreadCount, triggerRefresh]);
+  }, [triggerRefresh]);
 
   // Supabase Realtime subscription
   useEffect(() => {
@@ -228,7 +254,20 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'emails' },
-        () => { debouncedRefresh(); },
+        (payload) => {
+          // Only refresh when a user-visible field actually changed.
+          // Background categorization updates (categorization_status, is_categorized)
+          // fire many UPDATE events that would cause periodic re-renders while idle.
+          const oldRow = payload.old as Record<string, unknown> | undefined;
+          const newRow = payload.new as Record<string, unknown> | undefined;
+          if (oldRow && newRow) {
+            const hasVisibleChange = VISIBLE_FIELDS.some(
+              (field) => oldRow[field] !== newRow[field]
+            );
+            if (!hasVisibleChange) return;
+          }
+          debouncedRefresh();
+        },
       )
       .subscribe();
 
@@ -241,7 +280,6 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
   }, [debouncedRefresh]);
 
   // Persist sidebar layout to localStorage
-  const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
   const [savedLayout] = useState<Layout | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
     try {
@@ -271,6 +309,8 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       fetchError={sidebarError}
       onRetry={() => fetchRootNodes(true)}
       accounts={accounts}
+      unreadRefreshKey={unreadRefreshKey}
+      countsRefreshKey={countsRefreshKey}
     />
   );
 

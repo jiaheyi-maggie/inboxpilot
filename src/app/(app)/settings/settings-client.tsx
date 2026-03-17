@@ -63,6 +63,11 @@ export function SettingsClient({
     } else if (error) {
       toast.error(`Failed to connect account: ${error}`);
     }
+
+    // Clean query params to prevent toast re-firing on re-render
+    if (success || error) {
+      window.history.replaceState({}, '', '/settings');
+    }
   }, [searchParams]);
 
   const handleToggleAutoCategorize = useCallback(async () => {

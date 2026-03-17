@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Settings, LogOut, ShieldAlert } from 'lucide-react';
+import { Settings, LogOut, ShieldAlert, Mail } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,15 +22,19 @@ import {
 } from '@/components/ui/tooltip';
 import { SyncStatus } from '@/components/dashboard/sync-status';
 
+interface GmailAccountSummary {
+  id: string;
+  email: string;
+  last_sync_at: string | null;
+  sync_enabled: boolean;
+  granted_scope: string;
+  color: string;
+  display_name: string | null;
+}
+
 interface AppShellProps {
   userEmail: string;
-  account: {
-    id: string;
-    email: string;
-    last_sync_at: string | null;
-    sync_enabled: boolean;
-    granted_scope: string;
-  } | null;
+  accounts: GmailAccountSummary[];
   children: React.ReactNode;
 }
 
@@ -39,7 +43,7 @@ const NAV_ITEMS = [
   { href: '/workflows', label: 'Workflows' },
 ] as const;
 
-export function AppShell({ userEmail, account, children }: AppShellProps) {
+export function AppShell({ userEmail, accounts, children }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -53,6 +57,9 @@ export function AppShell({ userEmail, account, children }: AppShellProps) {
     await supabase.auth.signOut();
     window.location.href = '/';
   }, []);
+
+  // Primary account is the first (oldest) connected account — used for alert banners
+  const primaryAccount = accounts[0] ?? null;
 
   return (
     <div className="h-screen flex flex-col">
@@ -110,10 +117,38 @@ export function AppShell({ userEmail, account, children }: AppShellProps) {
                 </div>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground truncate">
-                {userEmail}
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Connected accounts
               </DropdownMenuLabel>
+              {accounts.length === 0 ? (
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                  No accounts connected
+                </div>
+              ) : (
+                accounts.map((acct) => (
+                  <div
+                    key={acct.id}
+                    className="flex items-center gap-2.5 px-2 py-1.5"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: acct.color }}
+                    />
+                    <div className="flex flex-col min-w-0">
+                      {acct.display_name && (
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {acct.display_name}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground truncate">
+                        {acct.email}
+                      </span>
+                    </div>
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 ml-auto" />
+                  </div>
+                ))
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
                 <LogOut className="h-3.5 w-3.5" />
@@ -125,19 +160,19 @@ export function AppShell({ userEmail, account, children }: AppShellProps) {
       </header>
 
       {/* Alert banners */}
-      {!account && (
+      {accounts.length === 0 && (
         <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-400">
           No Gmail account linked. Please sign out and sign in again with Google.
         </div>
       )}
 
-      {account && !account.last_sync_at && (
+      {primaryAccount && !primaryAccount.last_sync_at && (
         <div className="bg-blue-50 border-b border-blue-100 px-4 py-2 text-sm text-blue-700 dark:bg-blue-950/30 dark:border-blue-900 dark:text-blue-400">
           First time? Tap the sync button above to fetch your emails.
         </div>
       )}
 
-      {account && account.granted_scope === 'gmail.readonly' && (
+      {primaryAccount && primaryAccount.granted_scope === 'gmail.readonly' && (
         <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 text-sm text-amber-700 flex items-center gap-2 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-400">
           <ShieldAlert className="h-4 w-4 flex-shrink-0" />
           <span>
@@ -146,7 +181,7 @@ export function AppShell({ userEmail, account, children }: AppShellProps) {
         </div>
       )}
 
-      {/* Page content — overflow-hidden so dashboard fills exactly; pages that scroll handle it themselves */}
+      {/* Page content -- overflow-hidden so dashboard fills exactly; pages that scroll handle it themselves */}
       <main className="flex-1 overflow-hidden">
         {children}
       </main>

@@ -20,6 +20,11 @@ const CATEGORY_COLUMN_MAP: Partial<Record<DimensionKey, string>> = {
 // --- Date dimensions that require formatting ---
 const DATE_DIMENSIONS = new Set<DimensionKey>(['date_month', 'date_week']);
 
+// Hard ceiling for group queries — JS-side grouping loads all matching rows into memory.
+// 5000 is generous for personal inboxes; users with more will see approximate counts
+// for the most recent 5000 emails.
+const GROUP_QUERY_LIMIT = 5000;
+
 export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
   const {
@@ -179,7 +184,9 @@ async function handleGroupQuery(
     .from('emails')
     .select(selectFields)
     .in('gmail_account_id', accountIds)
-    .contains('label_ids', ['INBOX']);
+    .contains('label_ids', ['INBOX'])
+    .order('received_at', { ascending: false })
+    .limit(GROUP_QUERY_LIMIT);
 
   // Apply date range from config
   if (config.date_range_start) {

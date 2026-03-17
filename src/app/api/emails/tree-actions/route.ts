@@ -17,6 +17,11 @@ const CATEGORY_COLUMN_MAP: Partial<Record<DimensionKey, string>> = {
   importance: 'importance_label',
 };
 
+// Hard ceiling for filter-based bulk actions to prevent unbounded memory usage.
+// Tree actions typically target a single category/folder (hundreds of emails),
+// but we allow up to 2000 to handle large folders.
+const TREE_ACTION_QUERY_LIMIT = 2000;
+
 /**
  * Generalized bulk actions on any set of tree-filtered emails.
  * Accepts arbitrary filter paths (not just category) so every tree level
@@ -112,7 +117,9 @@ export async function POST(request: NextRequest) {
   let query = serviceClient
     .from('emails')
     .select(selectFields)
-    .in('gmail_account_id', allAccountIds);
+    .in('gmail_account_id', allAccountIds)
+    .order('received_at', { ascending: false })
+    .limit(TREE_ACTION_QUERY_LIMIT);
 
   // Apply date range from config if provided — try view_configs first, fall back to grouping_configs
   if (configId) {

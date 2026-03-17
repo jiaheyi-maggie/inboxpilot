@@ -74,6 +74,178 @@ function IntentBadge({ type }: { type: IntentResponse['type'] }) {
   }
 }
 
+// ── Types for AI Memory ──
+
+interface MemoryCategory {
+  name: string;
+  lines: string[];
+}
+
+// ── Reorder Detection ──
+
+/** Ordering keywords and their semantics. */
+type OrderingIntent =
+  | { type: 'last' }
+  | { type: 'first' }
+  | { type: 'before'; relativeTo: string }
+  | { type: 'after'; relativeTo: string };
+
+/**
+ * Parse a context string for category-ordering intent.
+ * Returns null if no ordering command is detected.
+ *
+ * Supported patterns:
+ *   "put X last", "move X to the end", "X should be last"
+ *   "put X first", "move X to the beginning", "X should be first"
+ *   "put X before Y", "move X before Y"
+ *   "put X after Y", "move X after Y"
+ */
+function parseOrderingIntent(
+  text: string,
+  categoryNames: string[]
+): { category: string; intent: OrderingIntent } | null {
+  const lower = text.toLowerCase();
+
+  // Quick bail: no ordering keywords at all
+  const hasOrderingKeyword =
+    /\b(last|first|end|beginning|before|after|move|put|should be)\b/.test(lower);
+  if (!hasOrderingKeyword) return null;
+
+  // Sort category names longest-first to avoid partial matches
+  // (e.g., "Work" matching before "Work Updates")
+  const sorted = [...categoryNames].sort((a, b) => b.length - a.length);
+
+  // Try to find a category being moved and the ordering intent
+  for (const catName of sorted) {
+    const catLower = catName.toLowerCase();
+
+    // Check if this category name appears in the text
+    // Use word boundary to avoid partial matches
+    const catPattern = new RegExp(`\\b${escapeRegex(catLower)}\\b`);
+    if (!catPattern.test(lower)) continue;
+
+    // Check "before Y" / "after Y" first (they reference a second category)
+    for (const keyword of ['before', 'after'] as const) {
+      const relPattern = new RegExp(
+        `\\b(?:put|move|place)\\b.*\\b${escapeRegex(catLower)}\\b.*\\b${keyword}\\b\\s+(.+?)(?:\\.|$)`,
+        'i'
+      );
+      const altPattern = new RegExp(
+        `\\b${escapeRegex(catLower)}\\b.*\\bshould\\s+(?:be|go|come)\\b.*\\b${keyword}\\b\\s+(.+?)(?:\\.|$)`,
+        'i'
+      );
+
+      for (const pat of [relPattern, altPattern]) {
+        const match = text.match(pat);
+        if (match) {
+          const targetFragment = match[1].trim().toLowerCase();
+          // Find the referenced category in the fragment
+          const relativeCat = sorted.find((name) => {
+            const nameLower = name.toLowerCase();
+            return (
+              nameLower !== catLower &&
+              new RegExp(`\\b${escapeRegex(nameLower)}\\b`).test(targetFragment)
+            );
+          });
+          if (relativeCat) {
+            return {
+              category: catName,
+              intent: { type: keyword, relativeTo: relativeCat },
+            };
+          }
+        }
+      }
+    }
+
+    // Check absolute positions: last/end, first/beginning
+    // Every pattern requires an explicit ordering verb or "should be/go" construction
+    // to avoid false positives like "the last email from personal"
+    const lastPatterns = [
+      new RegExp(`\\b(?:put|move|place|set|make)\\b.*\\b${escapeRegex(catLower)}\\b.*\\b(?:last|end)\\b`, 'i'),
+      new RegExp(`\\b${escapeRegex(catLower)}\\b.*\\bshould\\s+(?:be|go)\\b.*\\b(?:last|end)\\b`, 'i'),
+      new RegExp(`\\b(?:put|move|place|set|make)\\b.*\\b(?:last|end)\\b.*\\b${escapeRegex(catLower)}\\b`, 'i'),
+    ];
+    if (lastPatterns.some((p) => p.test(text))) {
+      return { category: catName, intent: { type: 'last' } };
+    }
+
+    const firstPatterns = [
+      new RegExp(`\\b(?:put|move|place|set|make)\\b.*\\b${escapeRegex(catLower)}\\b.*\\b(?:first|beginning|start|front)\\b`, 'i'),
+      new RegExp(`\\b${escapeRegex(catLower)}\\b.*\\bshould\\s+(?:be|go)\\b.*\\b(?:first|beginning|start|front)\\b`, 'i'),
+      new RegExp(`\\b(?:put|move|place|set|make)\\b.*\\b(?:first|beginning|start|front)\\b.*\\b${escapeRegex(catLower)}\\b`, 'i'),
+    ];
+    if (firstPatterns.some((p) => p.test(text))) {
+      return { category: catName, intent: { type: 'first' } };
+    }
+  }
+
+  return null;
+}
+
+/** Escape regex special characters in a string. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Compute a new ordering of category IDs given the parsed intent.
+ * Returns null if the operation is a no-op or invalid.
+ */
+function computeNewOrder(
+  categories: { id: string; name: string }[],
+  moveCategoryName: string,
+  intent: OrderingIntent
+): string[] | null {
+  const moveIdx = categories.findIndex(
+    (c) => c.name.toLowerCase() === moveCategoryName.toLowerCase()
+  );
+  if (moveIdx === -1) return null;
+
+  const ids = categories.map((c) => c.id);
+  const moveId = ids[moveIdx];
+
+  // Remove the category from its current position
+  const without = ids.filter((_, i) => i !== moveIdx);
+
+  switch (intent.type) {
+    case 'last': {
+      if (moveIdx === ids.length - 1) return null; // already last
+      return [...without, moveId];
+    }
+    case 'first': {
+      if (moveIdx === 0) return null; // already first
+      return [moveId, ...without];
+    }
+    case 'before': {
+      const targetIdx = categories.findIndex(
+        (c) => c.name.toLowerCase() === intent.relativeTo.toLowerCase()
+      );
+      if (targetIdx === -1) return null;
+      // Already immediately before the target — no-op
+      if (moveIdx === targetIdx - 1) return null;
+      // Adjust target index since we removed the move item
+      const adjustedTargetIdx =
+        targetIdx > moveIdx ? targetIdx - 1 : targetIdx;
+      const result = [...without];
+      result.splice(adjustedTargetIdx, 0, moveId);
+      return result;
+    }
+    case 'after': {
+      const targetIdx = categories.findIndex(
+        (c) => c.name.toLowerCase() === intent.relativeTo.toLowerCase()
+      );
+      if (targetIdx === -1) return null;
+      // Already immediately after the target — no-op
+      if (moveIdx === targetIdx + 1) return null;
+      const adjustedTargetIdx =
+        targetIdx > moveIdx ? targetIdx - 1 : targetIdx;
+      const result = [...without];
+      result.splice(adjustedTargetIdx + 1, 0, moveId);
+      return result;
+    }
+  }
+}
+
 // ── Main Component ──
 
 export function ChatSidebar({
@@ -86,9 +258,42 @@ export function ChatSidebar({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [memories, setMemories] = useState<MemoryCategory[]>([]);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const prefillProcessedRef = useRef<string | undefined>(undefined);
+
+  // Fetch category teachings when sidebar opens (for empty-state display)
+  useEffect(() => {
+    if (!open || messages.length > 0) return;
+    let cancelled = false;
+    setMemoriesLoading(true);
+    fetch('/api/categories')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.categories) return;
+        const cats: MemoryCategory[] = [];
+        for (const cat of data.categories) {
+          const desc = (cat.description ?? '').trim();
+          if (!desc) continue;
+          const lines = desc.split('\n').filter((l: string) => l.trim());
+          if (lines.length > 0) {
+            cats.push({ name: cat.name, lines });
+          }
+        }
+        setMemories(cats);
+      })
+      .catch(() => {
+        // Non-critical — fall through to default empty state
+      })
+      .finally(() => {
+        if (!cancelled) setMemoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, messages.length]);
 
   // Auto-send prefilled message from command palette
   useEffect(() => {
@@ -126,6 +331,8 @@ export function ChatSidebar({
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
         onClose();
       }
     }
@@ -262,6 +469,68 @@ export function ChatSidebar({
           (c) => c.name.toLowerCase() === currentCategory.toLowerCase()
         );
       }
+
+      // ── Check for ordering commands first ──
+      // Ordering commands ("put Personal last", "move Work before Finance") should
+      // reorder categories, NOT save the text as a category description.
+      const categoryNames = categories.map((c) => c.name);
+      const orderingParsed = parseOrderingIntent(contextText, categoryNames);
+
+      if (orderingParsed) {
+        // This is a layout/ordering command — execute reorder, skip description save
+        try {
+          const newOrder = computeNewOrder(
+            categories.map((c) => ({ id: c.id, name: c.name })),
+            orderingParsed.category,
+            orderingParsed.intent
+          );
+
+          if (!newOrder) {
+            // No-op (already in position) or invalid
+            toast.info(`"${orderingParsed.category}" is already in that position`);
+            return;
+          }
+
+          const reorderRes = await fetch('/api/categories/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: newOrder }),
+          });
+
+          if (!reorderRes.ok) {
+            const err = await reorderRes.json().catch(() => ({}));
+            toast.error(
+              (err as { error?: string }).error || 'Failed to reorder categories'
+            );
+            revertResolved();
+            return;
+          }
+
+          // Describe the action for the toast
+          const positionDesc =
+            orderingParsed.intent.type === 'last'
+              ? 'to last position'
+              : orderingParsed.intent.type === 'first'
+                ? 'to first position'
+                : orderingParsed.intent.type === 'before'
+                  ? `before ${orderingParsed.intent.relativeTo}`
+                  : `after ${orderingParsed.intent.relativeTo}`;
+
+          toast.success(
+            `Moved "${orderingParsed.category}" ${positionDesc}`,
+            { description: 'Board columns will update on next refresh.' }
+          );
+
+          // Refresh the UI so board view picks up the new order
+          onRefresh?.();
+        } catch {
+          toast.error('Failed to reorder categories');
+          revertResolved();
+        }
+        return;
+      }
+
+      // ── Standard context flow: save description + recategorize ──
 
       if (!matchedCategory) {
         toast.error(
@@ -449,12 +718,39 @@ export function ChatSidebar({
           className="flex-1 overflow-y-auto p-4 space-y-4"
         >
           {messages.length === 0 && (
-            <div className="text-center text-muted-foreground text-sm py-12 space-y-2">
+            <div className="text-center text-muted-foreground text-sm py-8 space-y-3">
               <Brain className="h-8 w-8 mx-auto text-muted-foreground/50" />
-              <p>Ask InboxPilot anything.</p>
-              <p className="text-xs">
-                Teach it about categories, execute commands, or create rules.
-              </p>
+              {memoriesLoading ? (
+                <Loader2 className="h-4 w-4 mx-auto animate-spin text-muted-foreground/50" />
+              ) : memories.length > 0 ? (
+                <>
+                  <p className="text-xs font-medium text-muted-foreground/70">
+                    I remember what you&apos;ve taught me:
+                  </p>
+                  <div className="text-left space-y-2 px-2">
+                    {memories.map((mem) => (
+                      <div key={mem.name}>
+                        <p className="text-xs font-semibold text-foreground/70">{mem.name}</p>
+                        {mem.lines.map((line, i) => (
+                          <p
+                            key={i}
+                            className="text-xs text-muted-foreground/60 pl-2 leading-relaxed"
+                          >
+                            &ldquo;{line}&rdquo;
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>Ask InboxPilot anything.</p>
+                  <p className="text-xs">
+                    Teach it about categories, execute commands, or create rules.
+                  </p>
+                </>
+              )}
             </div>
           )}
 

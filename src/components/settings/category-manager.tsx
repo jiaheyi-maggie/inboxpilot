@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Plus, Trash2, GripVertical, Pencil, Check, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, GripVertical, Pencil, Check, X, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Category {
@@ -23,6 +23,52 @@ export function CategoryManager() {
   const [newDescription, setNewDescription] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [expandedTeachings, setExpandedTeachings] = useState<Set<string>>(new Set());
+
+  const handleDeleteTeachingLine = useCallback(async (cat: Category, lineIndex: number) => {
+    const lines = (cat.description ?? '').split('\n').filter((l) => l.trim());
+    if (lineIndex < 0 || lineIndex >= lines.length) return;
+
+    const removedLine = lines[lineIndex];
+    const remaining = lines.filter((_, i) => i !== lineIndex);
+    const newDescription = remaining.length > 0 ? remaining.join('\n') : null;
+
+    // Optimistic update
+    setCategories((prev) =>
+      prev.map((c) => (c.id === cat.id ? { ...c, description: newDescription } : c))
+    );
+
+    try {
+      const res = await fetch(`/api/categories/${cat.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: newDescription }),
+      });
+
+      if (!res.ok) {
+        // Revert on error
+        setCategories((prev) =>
+          prev.map((c) => (c.id === cat.id ? { ...c, description: cat.description } : c))
+        );
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to remove teaching');
+        return;
+      }
+
+      const { category: updated } = await res.json();
+      // Apply server-confirmed state
+      setCategories((prev) =>
+        prev.map((c) => (c.id === cat.id ? updated : c))
+      );
+      toast.success(`Removed teaching from "${cat.name}": "${removedLine}"`);
+    } catch {
+      // Revert on network error
+      setCategories((prev) =>
+        prev.map((c) => (c.id === cat.id ? { ...c, description: cat.description } : c))
+      );
+      toast.error('Failed to remove teaching');
+    }
+  }, []);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -142,8 +188,8 @@ export function CategoryManager() {
       {/* Category list */}
       <div className="border border-border rounded-lg divide-y divide-border">
         {categories.map((cat) => (
-          <div key={cat.id} className="flex items-center gap-3 px-4 py-3">
-            <GripVertical className="h-4 w-4 text-muted-foreground/40 flex-shrink-0" />
+          <div key={cat.id} className="flex items-start gap-3 px-4 py-3">
+            <GripVertical className="h-4 w-4 text-muted-foreground/40 flex-shrink-0 mt-0.5" />
 
             {editingId === cat.id ? (
               <div className="flex-1 space-y-2">
@@ -191,20 +237,84 @@ export function CategoryManager() {
               <>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{cat.name}</p>
-                  {cat.description && (
-                    <p className="text-xs text-muted-foreground truncate">{cat.description}</p>
-                  )}
+                  {(() => {
+                    const lines = (cat.description ?? '').split('\n').filter((l) => l.trim());
+                    const isExpanded = expandedTeachings.has(cat.id);
+                    const MAX_VISIBLE = 5;
+                    const visibleLines = isExpanded ? lines : lines.slice(0, MAX_VISIBLE);
+                    const hiddenCount = lines.length - MAX_VISIBLE;
+
+                    if (lines.length === 0) {
+                      return (
+                        <p className="text-xs text-muted-foreground/50 italic mt-0.5">
+                          (no teachings yet)
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div className="mt-1 space-y-0.5">
+                        {visibleLines.map((line, i) => (
+                          <div
+                            key={i}
+                            className="group flex items-start gap-1 text-xs text-muted-foreground"
+                          >
+                            <span className="flex-1 leading-relaxed min-w-0">
+                              &ldquo;{line}&rdquo;
+                            </span>
+                            <button
+                              onClick={() => handleDeleteTeachingLine(cat, i)}
+                              className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                              title="Remove this teaching"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {!isExpanded && hiddenCount > 0 && (
+                          <button
+                            onClick={() =>
+                              setExpandedTeachings((prev) => {
+                                const next = new Set(prev);
+                                next.add(cat.id);
+                                return next;
+                              })
+                            }
+                            className="flex items-center gap-0.5 text-xs text-muted-foreground/60 hover:text-foreground transition-colors mt-0.5"
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                            Show {hiddenCount} more
+                          </button>
+                        )}
+                        {isExpanded && hiddenCount > 0 && (
+                          <button
+                            onClick={() =>
+                              setExpandedTeachings((prev) => {
+                                const next = new Set(prev);
+                                next.delete(cat.id);
+                                return next;
+                              })
+                            }
+                            className="flex items-center gap-0.5 text-xs text-muted-foreground/60 hover:text-foreground transition-colors mt-0.5"
+                          >
+                            <ChevronDown className="h-3 w-3 rotate-180" />
+                            Show less
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <button
                   onClick={() => startEdit(cat)}
-                  className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors self-start"
                   title="Edit"
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => handleDelete(cat)}
-                  className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                  className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors self-start"
                   title="Delete"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

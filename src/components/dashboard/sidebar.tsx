@@ -103,9 +103,13 @@ interface SidebarProps {
   onRetry: () => void;
   /** All connected Gmail accounts (for multi-inbox support) */
   accounts: AccountInfo[];
+  /** Scoped refresh key for unread section */
+  unreadRefreshKey?: number;
+  /** Scoped refresh key for system group counts */
+  countsRefreshKey?: number;
 }
 
-export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: SidebarProps) {
+export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts, unreadRefreshKey, countsRefreshKey }: SidebarProps) {
   const {
     selectedCategory,
     setSelectedCategory,
@@ -161,7 +165,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: S
   );
 
   const handleEmailsChanged = useCallback(() => {
-    triggerRefresh();
+    triggerRefresh('sidebar');
   }, [triggerRefresh]);
 
   const handleSelectSystemGroup = useCallback(
@@ -190,69 +194,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: S
 
   return (
     <div className="flex flex-col h-full">
-      {/* Unread section pinned at top */}
-      <UnreadSection
-        onEmailRead={handleEmailsChanged}
-        onSelectEmail={handleUnreadEmailSelected}
-        refreshKey={refreshKey}
-        selectedAccountId={selectedAccountId}
-      />
-
-      {/* System groups: Starred / Archived / Trash */}
-      <SystemGroups
-        selectedGroup={selectedSystemGroup}
-        onSelectGroup={handleSelectSystemGroup}
-        refreshKey={refreshKey}
-        selectedAccountId={selectedAccountId}
-      />
-
-      {/* Accounts section (only when multiple accounts) */}
-      {showAccountsSection && (
-        <div className="px-3 pt-3 pb-1 space-y-0.5">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 pb-1">
-            Accounts
-          </p>
-          {accounts.map((account) => {
-            const isSelected = selectedAccountId === account.id;
-            return (
-              <div
-                key={account.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSelectAccount(account.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleSelectAccount(account.id);
-                  }
-                }}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer
-                  ${isSelected
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-foreground hover:bg-accent'
-                  }
-                `}
-              >
-                <AccountDot color={account.color ?? '#3B82F6'} />
-                <Mail className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                <span className="truncate flex-1 text-left">
-                  {account.display_name ?? account.email}
-                </span>
-              </div>
-            );
-          })}
-          {selectedAccountId && (
-            <button
-              onClick={() => setSelectedAccountId(null)}
-              className="text-xs text-muted-foreground hover:text-foreground px-2 mt-0.5"
-            >
-              Show all accounts
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Category navigation */}
+      {/* Category navigation — primary navigation, always visible at top */}
       <div className="flex-1 overflow-auto">
         {loading ? (
           <TreeSkeleton />
@@ -321,6 +263,68 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts }: S
           </div>
         )}
       </div>
+
+      {/* Accounts section — secondary filter (only when multiple accounts) */}
+      {showAccountsSection && (
+        <div className="px-3 pt-3 pb-1 space-y-0.5 border-t border-border">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 pb-1">
+            Accounts
+          </p>
+          {accounts.map((account) => {
+            const isSelected = selectedAccountId === account.id;
+            return (
+              <div
+                key={account.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleSelectAccount(account.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleSelectAccount(account.id);
+                  }
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer
+                  ${isSelected
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-foreground hover:bg-accent'
+                  }
+                `}
+              >
+                <AccountDot color={account.color ?? '#3B82F6'} />
+                <Mail className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <span className="truncate flex-1 text-left">
+                  {account.display_name ?? account.email}
+                </span>
+              </div>
+            );
+          })}
+          {selectedAccountId && (
+            <button
+              onClick={() => setSelectedAccountId(null)}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 mt-0.5"
+            >
+              Show all accounts
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* System groups: Starred / Archived / Trash — tertiary filter */}
+      <SystemGroups
+        selectedGroup={selectedSystemGroup}
+        onSelectGroup={handleSelectSystemGroup}
+        refreshKey={countsRefreshKey ?? refreshKey}
+        selectedAccountId={selectedAccountId}
+      />
+
+      {/* Unread section — feed at bottom, scrollable */}
+      <UnreadSection
+        onEmailRead={handleEmailsChanged}
+        onSelectEmail={handleUnreadEmailSelected}
+        refreshKey={unreadRefreshKey ?? refreshKey}
+        selectedAccountId={selectedAccountId}
+      />
     </div>
   );
 }

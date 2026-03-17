@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { google } from 'googleapis';
 import { encrypt } from '@/lib/crypto';
 import { cookies } from 'next/headers';
+import { syncEmails } from '@/lib/gmail/sync';
+import type { GmailAccount } from '@/types';
 
 const ACCOUNT_COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -138,6 +140,28 @@ export async function GET(request: NextRequest) {
     console.error('[connect/callback] Failed to store Gmail account:', upsertError);
     return NextResponse.redirect(`${origin}/settings?error=storage_failed`);
   }
+
+  // Trigger background sync for the newly connected account.
+  // Uses Next.js after() so the redirect happens immediately while sync runs in background.
+  after(async () => {
+    try {
+      const bgServiceClient = createServiceClient();
+      const { data: accountRow } = await bgServiceClient
+        .from('gmail_accounts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('email', email)
+        .single();
+
+      if (accountRow) {
+        console.log(`[connect/callback] Starting background sync for newly connected account: ${email}`);
+        const result = await syncEmails(accountRow as GmailAccount);
+        console.log(`[connect/callback] Background sync done for ${email}: fetched=${result.fetched}, errors=${result.errors}`);
+      }
+    } catch (err) {
+      console.error(`[connect/callback] Background sync failed for ${email}:`, err);
+    }
+  });
 
   // Redirect back to settings with success indicator
   const status = isNewAccount ? 'account_connected' : 'account_refreshed';

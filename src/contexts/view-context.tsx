@@ -59,8 +59,14 @@ interface ViewContextValue {
 
   // ── Refresh trigger ──
   refreshKey: number;
-  triggerRefresh: () => void;
+  sidebarRefreshKey: number;
+  contentRefreshKey: number;
+  unreadRefreshKey: number;
+  countsRefreshKey: number;
+  triggerRefresh: (scope?: RefreshScope | RefreshScope[]) => void;
 }
+
+export type RefreshScope = 'sidebar' | 'content' | 'unread' | 'counts';
 
 const ViewContext = createContext<ViewContextValue | null>(null);
 
@@ -102,14 +108,53 @@ export function ViewProvider({
   const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
-  // Refresh trigger — single counter incremented by both internal and external events
+  // Refresh trigger — combined key (backward compat) + scoped keys
   const [refreshKey, setRefreshKey] = useState(0);
-  const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+  const [contentRefreshKey, setContentRefreshKey] = useState(0);
+  const [unreadRefreshKey, setUnreadRefreshKey] = useState(0);
+  const [countsRefreshKey, setCountsRefreshKey] = useState(0);
 
-  // Sync external refresh key changes into the single counter
+  const triggerRefresh = useCallback((scope?: RefreshScope | RefreshScope[]) => {
+    // Always increment the combined key for backward compat
+    setRefreshKey((k) => k + 1);
+
+    if (!scope) {
+      // No scope = refresh everything
+      setSidebarRefreshKey((k) => k + 1);
+      setContentRefreshKey((k) => k + 1);
+      setUnreadRefreshKey((k) => k + 1);
+      setCountsRefreshKey((k) => k + 1);
+      return;
+    }
+
+    const scopes = Array.isArray(scope) ? scope : [scope];
+    for (const s of scopes) {
+      switch (s) {
+        case 'sidebar':
+          setSidebarRefreshKey((k) => k + 1);
+          break;
+        case 'content':
+          setContentRefreshKey((k) => k + 1);
+          break;
+        case 'unread':
+          setUnreadRefreshKey((k) => k + 1);
+          break;
+        case 'counts':
+          setCountsRefreshKey((k) => k + 1);
+          break;
+      }
+    }
+  }, []);
+
+  // Sync external refresh key changes into all counters
   useEffect(() => {
     if (externalRefreshKey > 0) {
       setRefreshKey((k) => k + 1);
+      setSidebarRefreshKey((k) => k + 1);
+      setContentRefreshKey((k) => k + 1);
+      setUnreadRefreshKey((k) => k + 1);
+      setCountsRefreshKey((k) => k + 1);
     }
   }, [externalRefreshKey]);
 
@@ -225,6 +270,10 @@ export function ViewProvider({
       selectedEmailId,
       setSelectedEmailId,
       refreshKey,
+      sidebarRefreshKey,
+      contentRefreshKey,
+      unreadRefreshKey,
+      countsRefreshKey,
       triggerRefresh,
     }),
     [
@@ -247,6 +296,10 @@ export function ViewProvider({
       setSelectedAccountId,
       selectedEmailId,
       refreshKey,
+      sidebarRefreshKey,
+      contentRefreshKey,
+      unreadRefreshKey,
+      countsRefreshKey,
       triggerRefresh,
     ]
   );

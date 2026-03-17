@@ -28,13 +28,19 @@ interface UnreadSectionProps {
 
 export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selectedAccountId }: UnreadSectionProps) {
   const [emails, setEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [categorizingAll, setCategorizingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   const fetchUnread = useCallback(async () => {
-    setLoading(true);
+    // Only show loading state on initial load, not on refetches.
+    // This prevents the unread section from disappearing (returning null)
+    // while refetching after account selection changes.
+    if (!hasLoadedOnce.current) {
+      setInitialLoading(true);
+    }
     try {
       const url = new URL('/api/emails/unread', window.location.origin);
       if (selectedAccountId) {
@@ -51,7 +57,8 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selected
     } catch {
       setError('Failed to load unread emails');
     } finally {
-      setLoading(false);
+      hasLoadedOnce.current = true;
+      setInitialLoading(false);
     }
   }, [selectedAccountId]);
 
@@ -104,7 +111,7 @@ export function UnreadSection({ onEmailRead, onSelectEmail, refreshKey, selected
     [onEmailRead],
   );
 
-  if (loading) return null;
+  if (initialLoading) return null;
   if (emails.length === 0 && !error) return null;
 
   return (

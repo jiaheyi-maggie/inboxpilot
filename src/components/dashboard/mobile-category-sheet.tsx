@@ -41,6 +41,7 @@ export function MobileCategorySheet({
   const sheetRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
   const touchCurrentY = useRef<number | null>(null);
+  const handleBarRef = useRef<HTMLDivElement>(null);
 
   // Close on Escape key
   useEffect(() => {
@@ -78,6 +79,8 @@ export function MobileCategorySheet({
 
   // Swipe-to-dismiss handlers
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Only allow swipe-to-dismiss from the handle bar area, not from scrollable content
+    if (handleBarRef.current && !handleBarRef.current.contains(e.target as Node)) return;
     touchStartY.current = e.touches[0].clientY;
     touchCurrentY.current = e.touches[0].clientY;
   }, []);
@@ -191,8 +194,8 @@ export function MobileCategorySheet({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Handle bar */}
-        <div className="flex justify-center pt-3 pb-1">
+        {/* Handle bar — swipe-to-dismiss only from this area */}
+        <div ref={handleBarRef} className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing">
           <div className="w-8 h-1 rounded-full bg-muted-foreground/30" />
         </div>
 

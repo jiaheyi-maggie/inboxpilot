@@ -278,8 +278,9 @@ export function BoardView({
     })
   );
 
-  // Ref to track pre-drag column order for revert
+  // Refs to track pre-drag state for revert
   const initialColumnOrderRef = useRef<string[] | null>(null);
+  const initialCategorySortMapRef = useRef<Map<string, number> | null>(null);
 
   // ── Drag handlers ──
 
@@ -297,6 +298,7 @@ export function BoardView({
         const groupKey = id.startsWith('column:') ? id.slice('column:'.length) : id;
         setActiveColumnKey(groupKey);
         initialColumnOrderRef.current = [...columnOrder];
+        initialCategorySortMapRef.current = new Map(categorySortMap);
         return;
       }
 
@@ -314,7 +316,7 @@ export function BoardView({
         }
       }
     },
-    [columns, columnOrder]
+    [columns, columnOrder, categorySortMap]
   );
 
   const handleDragOver = useCallback(
@@ -431,16 +433,16 @@ export function BoardView({
           toast.error(
             `Failed to save column order: ${err instanceof Error ? err.message : 'Unknown error'}`
           );
-          // Revert
+          // Revert to pre-drag snapshots
           if (initialColumnOrderRef.current) {
             setColumnOrder(initialColumnOrderRef.current);
-            // Also revert the sort map
-            const revertMap = new Map(categorySortMap);
-            initialColumnOrderRef.current.forEach((key, index) => revertMap.set(key, index));
-            setCategorySortMap(revertMap);
+          }
+          if (initialCategorySortMapRef.current) {
+            setCategorySortMap(initialCategorySortMapRef.current);
           }
         } finally {
           initialColumnOrderRef.current = null;
+          initialCategorySortMapRef.current = null;
         }
         return;
       }

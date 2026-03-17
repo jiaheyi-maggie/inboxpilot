@@ -31,7 +31,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     selectedAccountId,
     selectedEmailId,
     setSelectedEmailId,
-    refreshKey,
+    contentRefreshKey,
     triggerRefresh,
     viewConfig,
   } = useView();
@@ -179,12 +179,12 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
 
   useEffect(() => {
     fetchData();
-  }, [fetchData, refreshKey]);
+  }, [fetchData, contentRefreshKey]);
 
   // ── Email event handlers ──
 
   const handleEmailMoved = useCallback(() => {
-    triggerRefresh();
+    triggerRefresh(['sidebar', 'content', 'counts']);
   }, [triggerRefresh]);
 
   const handleEmailRemoved = useCallback(
@@ -193,7 +193,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
         setSelectedEmail(null);
         setSelectedEmailId(null);
       }
-      triggerRefresh();
+      triggerRefresh(['sidebar', 'content', 'counts']);
     },
     [selectedEmail, setSelectedEmailId, triggerRefresh]
   );
@@ -205,7 +205,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
       );
       // If in a system group and the update invalidates membership, refresh
       if (selectedSystemGroup === 'starred' && updates.is_starred === false) {
-        triggerRefresh();
+        triggerRefresh('counts');
       }
     },
     [selectedSystemGroup, triggerRefresh]
@@ -216,7 +216,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
       setSelectedEmail((prev) =>
         prev?.id === emailId ? { ...prev, category } : prev
       );
-      triggerRefresh();
+      triggerRefresh(['sidebar', 'content']);
     },
     [triggerRefresh]
   );

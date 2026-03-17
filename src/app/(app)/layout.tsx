@@ -18,17 +18,15 @@ export default async function AppLayout({
 
   const serviceClient = createServiceClient();
 
-  // Fetch primary Gmail account for header (scope banner, sync status)
-  const { data: account } = await serviceClient
+  // Fetch ALL connected Gmail accounts for header (profile dropdown, scope banner, sync status)
+  const { data: accounts } = await serviceClient
     .from('gmail_accounts')
-    .select('id, email, last_sync_at, sync_enabled, granted_scope')
+    .select('id, email, last_sync_at, sync_enabled, granted_scope, color, display_name')
     .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .order('created_at', { ascending: true });
 
   return (
-    <AppShell userEmail={user.email ?? ''} account={account}>
+    <AppShell userEmail={user.email ?? ''} accounts={accounts ?? []}>
       {children}
     </AppShell>
   );
