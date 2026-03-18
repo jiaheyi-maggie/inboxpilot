@@ -26,19 +26,21 @@ Categorization runs automatically after each sync. The `auto_categorize_unread` 
 
 ### Dashboard — Notion-style Multi-view
 
-The dashboard has three view modes, switchable from tabs in the main panel:
+The dashboard has four view modes, switchable from tabs in the main panel:
 
-**List view** — Flat email list within each group.
+**Focus view** — Tinder-style card stack for rapid email processing. Swipe right to archive, left to skip, up to star. Emails are ranked by a smart score: `importance × recency × unread boost`. Keyboard shortcuts: arrow keys, `e`/`s`/`f`/`z`, `?` for help. Includes snooze picker and undo toasts. Newsletter bundles are pulled out of the card stack and shown as a one-click "Archive All" digest.
 
-**Board view** — Kanban columns. Drag and drop emails between columns to instantly reassign their category. Drag columns to reorder them.
+**List view** — Flat email list with newsletter bundling. Low-importance categories (Newsletters, Promotions, Notifications) are auto-collapsed into expandable bundle rows with "Archive All" buttons.
 
-**Tree view** — File-manager style. Drag emails onto folders to reassign. Right-click for context menus (rename, delete, create categories). Inline rename on double-click.
+**Board view** — Kanban columns. Drag and drop emails between columns to instantly reassign their category. Drag columns to reorder them (persisted via sort order).
+
+**Tree view** — File-manager style. Drag emails onto folders to reassign. Right-click for context menus (rename, delete, create categories). Inline rename on double-click. Long-press for mobile.
 
 **9 grouping dimensions** (combinable): `category`, `topic`, `sender`, `sender_domain`, `date_month`, `date_week`, `importance`, `has_attachment`, `is_read`
 
 **Inline toolbar** on each view: Filter, Sort, Group by any dimension.
 
-**Sidebar navigation**: Unread section, system groups (Starred / Archived / Trash), "All Categories" home, category list with inline teach inputs.
+**Sidebar navigation**: Categories (with "All Categories" at top), Accounts (multi-inbox filter), system groups (Starred / Snoozed / Archived / Trash), Unread section. Navigation elements always visible at the top; unread queue at the bottom.
 
 **Breadcrumb bar**: Always-visible navigation path showing your current location (e.g., `All Mail / Work — 42 emails`). Click any segment to navigate back.
 
@@ -54,12 +56,12 @@ The dashboard has three view modes, switchable from tabs in the main panel:
 
 | Intent | Behavior |
 |--------|----------|
-| `context` | Saves your instruction as a category description to improve future categorization, then re-categorizes affected emails |
+| `context` | Saves your instruction as a category description to improve future categorization, then re-categorizes affected emails. Also detects layout commands ("put Personal last") and executes category reordering |
 | `command` | Executes an immediate action (archive, star, move, etc.) |
 | `rule` | Generates a workflow rule from natural language |
-| `search` | Searches your synced emails |
+| `search` | Searches your synced emails with structured filters, displays results in the main content area |
 
-**AI memory**: When you open the chat, it shows what you've previously taught it. In Settings, each category displays its teachings as a list with per-line delete.
+**AI memory**: When you open the chat, it shows what you've previously taught it ("I remember what you've taught me"). In Settings, each category displays its teachings as a list with per-line delete buttons.
 
 **Teach inputs** — Inline input on each category. Describe what belongs there to refine future AI categorization.
 
@@ -77,15 +79,18 @@ Workflows support test runs against existing email, backfill against historical 
 
 ### Email Management
 
-- Star, archive, trash, mark read/unread — all synced back to Gmail
+- Star, archive, trash, mark read/unread — all synced back to Gmail with **undo toasts** (5-second window to reverse any action)
+- **Snooze** — "Remind me later" with preset times (later today, tomorrow morning, this weekend, next week, or custom). Snoozed emails disappear and reappear at the scheduled time via cron
+- **AI Auto-Reply** — Claude Haiku drafts context-aware replies using the email thread, category teachings, and importance level. Tone adapts automatically (formal for critical, casual for low). Send via Gmail API with proper conversation threading. Keyboard shortcuts: `r` to reply, `Cmd+Enter` to send
 - Bulk actions on any tree node
 - Category reassignment via drag-and-drop (Board view), context menu (Tree view), or "Move to..." picker
+- **Email search** — search via chat ("find emails about Q4 report") or Cmd+K. AI intent classification extracts structured filters (category, sender, read status). Results shown with a searchable breadcrumb indicator
 - Quick rule creation from any email
 - Email body rendered in a sandboxed iframe
 
 ### Multi-Inbox
 
-Connect multiple Gmail accounts from Settings. Each inbox syncs independently. View all inboxes unified or filter by account. Categories can be global (all inboxes) or inbox-specific.
+Connect multiple Gmail accounts from Settings via "Connect Another Gmail" (separate OAuth flow from Supabase auth). Each inbox syncs independently — newly connected accounts auto-sync in the background. View all inboxes unified or filter by account via sidebar. Categories can be global (all inboxes) or inbox-specific. Profile dropdown shows all connected accounts with colored dots.
 
 ### Custom Categories
 

@@ -38,6 +38,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
     contentRefreshKey,
     triggerRefresh,
     viewConfig,
+    threadingEnabled,
   } = useView();
 
   // Data state
@@ -471,6 +472,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
           accountColorMap={accountColorMap}
           showAccountDot={showAccountDot}
           disableBundling={!!selectedCategory}
+          threadingEnabled={threadingEnabled}
         />
       )}
     </div>

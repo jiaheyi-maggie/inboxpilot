@@ -38,6 +38,7 @@ import {
 import { CategoryPicker } from './category-picker';
 import { EmailDetail } from './email-detail';
 import { EmailBundle, partitionIntoBundles } from './email-bundle';
+import { ThreadList } from './thread-list';
 import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
 import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory, EmailAction, SystemGroupKey } from '@/types';
@@ -54,9 +55,11 @@ interface EmailListProps {
   showAccountDot?: boolean;
   /** Disable bundling (e.g., when viewing a specific category or search results) */
   disableBundling?: boolean;
+  /** When true, group emails by conversation thread_id */
+  threadingEnabled?: boolean;
 }
 
-export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, showAccountDot, disableBundling }: EmailListProps) {
+export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, showAccountDot, disableBundling, threadingEnabled }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -273,8 +276,8 @@ export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, 
     ? partitionIntoBundles(localEmails)
     : { individual: localEmails, bundles: [] };
 
-  // Shared render function for an EmailRow — used both for individual emails
-  // and inside expanded bundles (avoids duplicating the EmailRow JSX)
+  // Shared render function for an EmailRow — used both for individual emails,
+  // inside expanded bundles, and inside expanded threads
   const renderEmailRow = (email: EmailWithCategory) => (
     <EmailRow
       key={email.id}
@@ -288,6 +291,74 @@ export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, 
       accountColor={showAccountDot ? accountColorMap?.get(email.gmail_account_id) : undefined}
     />
   );
+
+  // When threading is enabled, delegate to ThreadList which groups by thread_id
+  if (threadingEnabled) {
+    return (
+      <div>
+        {/* Bulk action bar — appears when any emails are checked */}
+        {hasChecked && (
+          <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-primary/5 border-b border-border backdrop-blur-sm">
+            <button
+              onClick={toggleAll}
+              className="p-0.5 hover:bg-accent rounded transition-colors"
+              title={allChecked ? 'Deselect all' : 'Select all'}
+            >
+              {allChecked ? (
+                <CheckSquare className="h-4 w-4 text-primary" />
+              ) : (
+                <MinusSquare className="h-4 w-4 text-primary" />
+              )}
+            </button>
+            <span className="text-xs font-medium text-foreground">
+              {checkedIds.size} selected
+            </span>
+            <div className="flex items-center gap-1 ml-2">
+              {bulkLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('archive')}>
+                    <Archive className="h-3.5 w-3.5" />
+                    Archive
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('trash')}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Trash
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('star')}>
+                    <Star className="h-3.5 w-3.5" />
+                    Star
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('mark_read')}>
+                    <MailOpen className="h-3.5 w-3.5" />
+                    Read
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => executeBulkAction('mark_unread')}>
+                    <Mail className="h-3.5 w-3.5" />
+                    Unread
+                  </Button>
+                </>
+              )}
+            </div>
+            <button
+              onClick={clearChecked}
+              className="ml-auto p-1 hover:bg-accent rounded transition-colors"
+              title="Clear selection"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        )}
+        <ThreadList
+          emails={localEmails}
+          renderEmailRow={renderEmailRow}
+          accountColorMap={accountColorMap}
+          showAccountDot={showAccountDot}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>

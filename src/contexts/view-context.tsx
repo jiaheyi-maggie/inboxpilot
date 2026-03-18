@@ -73,6 +73,10 @@ interface ViewContextValue {
   setSearch: (query: string, filters?: Record<string, unknown>) => void;
   clearSearch: () => void;
 
+  // ── Threading ──
+  threadingEnabled: boolean;
+  setThreadingEnabled: (enabled: boolean) => void;
+
   // ── Refresh trigger ──
   sidebarRefreshKey: number;
   contentRefreshKey: number;
@@ -140,6 +144,9 @@ export function ViewProvider({
   // Search state
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
+
+  // Threading state (local only, not persisted to view config)
+  const [threadingEnabled, setThreadingEnabled] = useState(false);
 
   // Refresh trigger — combined key (backward compat) + scoped keys
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
@@ -330,6 +337,8 @@ export function ViewProvider({
       searchFilters,
       setSearch,
       clearSearch,
+      threadingEnabled,
+      setThreadingEnabled,
     }),
     [
       viewConfig,
@@ -354,6 +363,8 @@ export function ViewProvider({
       searchFilters,
       setSearch,
       clearSearch,
+      threadingEnabled,
+      setThreadingEnabled,
     ]
   );
 

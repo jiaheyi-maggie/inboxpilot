@@ -5,6 +5,7 @@ import {
   Filter,
   ArrowUpDown,
   Layers,
+  MessageSquare,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -103,6 +104,8 @@ export function ViewToolbar() {
     groupBy,
     setGroupBy,
     viewType,
+    threadingEnabled,
+    setThreadingEnabled,
   } = useViewState();
 
   const hasActiveControls = filters.length > 0 || sort.length > 1 ||
@@ -225,6 +228,22 @@ export function ViewToolbar() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+
+      {/* Thread toggle button — only for list view */}
+      {viewType === 'list' && (
+        <Button
+          variant={threadingEnabled ? 'default' : 'ghost'}
+          size="sm"
+          className={`h-7 px-2 text-xs gap-1 ${
+            threadingEnabled ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''
+          }`}
+          onClick={() => setThreadingEnabled(!threadingEnabled)}
+          title={threadingEnabled ? 'Disable conversation threading' : 'Group emails by conversation thread'}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          Threads
+        </Button>
       )}
 
       {/* Active filter/sort chips */}
