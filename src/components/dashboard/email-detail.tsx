@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import {
   ArrowLeft,
   Archive,
+  Check,
   Clock,
   ExternalLink,
   Loader2,
@@ -12,6 +13,9 @@ import {
   MailOpen,
   MoreHorizontal,
   Paperclip,
+  RefreshCw,
+  Reply,
+  Send,
   Star,
   Trash2,
   ArrowRight,
@@ -19,6 +23,7 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsDown,
+  X,
   Zap,
   RotateCcw,
 } from 'lucide-react';
@@ -57,8 +62,15 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
   const [showPicker, setShowPicker] = useState(false);
   const [showRuleDialog, setShowRuleDialog] = useState(false);
   const [showSnooze, setShowSnooze] = useState(false);
+  const [replyMode, setReplyMode] = useState(false);
+  const [replyDraft, setReplyDraft] = useState('');
+  const [replyLoading, setReplyLoading] = useState(false);
+  const [replySending, setReplySending] = useState(false);
+  const [replySent, setReplySent] = useState(false);
+  const replySendingRef = useRef(false); // synchronous guard against double-send
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fullDate = email.received_at
     ? format(new Date(email.received_at), 'EEEE, MMMM d, yyyy \'at\' h:mm a')
@@ -265,6 +277,145 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
     [email.id, email.subject, onUpdated, onCategoryChanged]
   );
 
+  // --- Reply handlers ---
+
+  const fetchDraft = useCallback(async () => {
+    setReplyLoading(true);
+    setReplyDraft('');
+    try {
+      const res = await fetch(`/api/emails/${email.id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'draft' }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Failed to generate draft');
+      }
+      const data = await res.json();
+      setReplyDraft(data.draft ?? '');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate draft');
+      setReplyMode(false);
+    } finally {
+      setReplyLoading(false);
+    }
+  }, [email.id]);
+
+  const openReply = useCallback(() => {
+    if (replySent) return;
+    if (replyMode) {
+      // Already open — focus the textarea
+      replyTextareaRef.current?.focus();
+      return;
+    }
+    setReplyMode(true);
+    setReplySent(false);
+    fetchDraft();
+  }, [replyMode, replySent, fetchDraft]);
+
+  const discardReply = useCallback(() => {
+    setReplyMode(false);
+    setReplyDraft('');
+    setReplyLoading(false);
+    setReplySending(false);
+  }, []);
+
+  const sendReply = useCallback(async () => {
+    if (replySendingRef.current) return; // synchronous guard against double Cmd+Enter
+    if (!replyDraft.trim()) {
+      toast.error('Reply body cannot be empty');
+      return;
+    }
+    replySendingRef.current = true;
+    setReplySending(true);
+    try {
+      const res = await fetch(`/api/emails/${email.id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', body: replyDraft }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Failed to send reply');
+      }
+      toast.success('Reply sent', {
+        description: email.subject || '(no subject)',
+      });
+      setReplyMode(false);
+      setReplyDraft('');
+      setReplySent(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send reply');
+    } finally {
+      replySendingRef.current = false;
+      setReplySending(false);
+    }
+  }, [email.id, email.subject, replyDraft]);
+
+  // Auto-focus and auto-resize the reply textarea when draft loads
+  useEffect(() => {
+    if (replyMode && !replyLoading && replyDraft && replyTextareaRef.current) {
+      replyTextareaRef.current.focus();
+      // Auto-resize to fit content
+      const ta = replyTextareaRef.current;
+      ta.style.height = 'auto';
+      ta.style.height = `${ta.scrollHeight}px`;
+    }
+  }, [replyMode, replyLoading, replyDraft]);
+
+  // Auto-resize on content change
+  const handleReplyChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setReplyDraft(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${e.target.scrollHeight}px`;
+  }, []);
+
+  // Reset reply state when email changes
+  useEffect(() => {
+    setReplyMode(false);
+    setReplyDraft('');
+    setReplyLoading(false);
+    setReplySending(false);
+    setReplySent(false);
+  }, [email.id]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't intercept when typing in an input/textarea (except our reply textarea for Cmd+Enter)
+      const target = e.target as HTMLElement;
+      const isInTextarea = target.tagName === 'TEXTAREA';
+      const isInInput = target.tagName === 'INPUT' || target.isContentEditable;
+
+      // Cmd/Ctrl+Enter in the reply textarea → send
+      if (isInTextarea && (e.metaKey || e.ctrlKey) && e.key === 'Enter' && replyMode && !replySending) {
+        e.preventDefault();
+        sendReply();
+        return;
+      }
+
+      // Escape → discard reply (works even when textarea is focused)
+      if (e.key === 'Escape' && replyMode) {
+        e.preventDefault();
+        discardReply();
+        return;
+      }
+
+      // Don't process single-key shortcuts when user is typing in any input
+      if (isInInput || isInTextarea) return;
+
+      // 'r' → open reply
+      if (e.key === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        openReply();
+      }
+    };
+
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [replyMode, replySending, sendReply, discardReply, openReply]);
+
   // Prepare HTML for safe iframe rendering
   const iframeSrcDoc = bodyHtml ? prepareHtmlForIframe(bodyHtml) : null;
 
@@ -307,6 +458,20 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
                       : 'text-muted-foreground'
                   }`}
                 />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={openReply}
+                title="Reply (r)"
+                disabled={replySent}
+              >
+                {replySent ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Reply className="h-4 w-4 text-muted-foreground" />
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -474,6 +639,84 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
           </div>
         )}
       </div>
+
+      {/* Reply section */}
+      {replyMode && (
+        <div className="border-t border-border px-6 py-4 flex-shrink-0">
+          <div className="flex items-center gap-2 mb-3">
+            <Reply className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
+              Reply to {email.sender_name || email.sender_email || 'sender'}
+            </span>
+          </div>
+          {replyLoading ? (
+            <div className="flex items-center gap-2 py-6 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
+                Drafting reply...
+              </span>
+            </div>
+          ) : (
+            <>
+              <textarea
+                ref={replyTextareaRef}
+                value={replyDraft}
+                onChange={handleReplyChange}
+                disabled={replySending}
+                className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-hidden"
+                placeholder="Write your reply..."
+              />
+              <div className="flex items-center gap-2 mt-3">
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={sendReply}
+                  disabled={replySending || !replyDraft.trim()}
+                >
+                  {replySending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  {replySending ? 'Sending...' : 'Send'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={discardReply}
+                  disabled={replySending}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Discard
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-muted-foreground"
+                  onClick={fetchDraft}
+                  disabled={replySending || replyLoading}
+                  title="Regenerate draft"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Regenerate
+                </Button>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Replied indicator */}
+      {replySent && !replyMode && (
+        <div className="border-t border-border px-6 py-3 flex-shrink-0 flex items-center gap-2">
+          <Check className="h-4 w-4 text-green-500" />
+          <span className="text-sm text-green-600">Replied</span>
+        </div>
+      )}
 
       {showPicker && (
         <CategoryPicker

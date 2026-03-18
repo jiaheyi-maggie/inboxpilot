@@ -279,6 +279,67 @@ export async function untrashEmails(account: GmailAccount, gmailMessageIds: stri
   return { restored: gmailMessageIds.length - failed, failed };
 }
 
+// --- Send Reply ---
+
+export interface SendReplyParams {
+  /** The Gmail Message-ID header value (e.g., "<abc@mail.gmail.com>") */
+  originalMessageId: string;
+  /** Gmail thread ID for threading the reply */
+  threadId: string | null;
+  /** Recipient email address (the original sender) */
+  to: string;
+  /** Subject line (should already include "Re: " prefix) */
+  subject: string;
+  /** Plain text body of the reply */
+  body: string;
+}
+
+/**
+ * Send a reply to an email via Gmail API.
+ * Constructs an RFC 2822 MIME message with proper threading headers
+ * (In-Reply-To + References) and base64url-encodes it for the raw field.
+ */
+export async function sendReply(
+  account: GmailAccount,
+  params: SendReplyParams,
+): Promise<{ messageId: string }> {
+  const gmail = await getGmailClient(account);
+
+  // Sanitize header values to prevent CRLF injection
+  const sanitize = (v: string) => v.replace(/[\r\n]/g, ' ').trim();
+
+  // Build RFC 2822 MIME message
+  const messageParts = [
+    `To: ${sanitize(params.to)}`,
+    `Subject: ${sanitize(params.subject)}`,
+    `In-Reply-To: ${sanitize(params.originalMessageId)}`,
+    `References: ${sanitize(params.originalMessageId)}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    `MIME-Version: 1.0`,
+    '',
+    params.body,
+  ];
+  const rawMessage = messageParts.join('\r\n');
+
+  // base64url encode the raw message
+  const encoded = Buffer.from(rawMessage, 'utf-8').toString('base64url');
+
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: {
+      raw: encoded,
+      threadId: params.threadId ?? undefined,
+    },
+  });
+
+  const sentMessageId = res.data.id;
+  if (!sentMessageId) {
+    throw new Error('Gmail send returned no message ID');
+  }
+
+  return { messageId: sentMessageId };
+}
+
 // --- Email Body Fetching ---
 
 export async function fetchEmailBody(

@@ -111,6 +111,7 @@ export async function PUT(
     .from('view_configs')
     .update(update)
     .eq('id', id)
+    .eq('user_id', user.id)
     .select()
     .single();
 

@@ -321,6 +321,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
   }
 
   // Search results — always rendered as a flat list regardless of current view type
+  // Bundling is disabled in search results to show all matching emails individually
   if (searchQuery) {
     return (
       <div>
@@ -341,6 +342,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
             onEmailMoved={handleEmailMoved}
             accountColorMap={accountColorMap}
             showAccountDot={showAccountDot}
+            disableBundling
           />
         )}
       </div>
@@ -468,6 +470,7 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
           systemGroup={selectedSystemGroup}
           accountColorMap={accountColorMap}
           showAccountDot={showAccountDot}
+          disableBundling={!!selectedCategory}
         />
       )}
     </div>

@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CategoryPicker } from './category-picker';
 import { EmailDetail } from './email-detail';
+import { EmailBundle, partitionIntoBundles } from './email-bundle';
 import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
 import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory, EmailAction, SystemGroupKey } from '@/types';
@@ -51,9 +52,11 @@ interface EmailListProps {
   accountColorMap?: Map<string, string>;
   /** Whether to show account dots (only when multiple accounts) */
   showAccountDot?: boolean;
+  /** Disable bundling (e.g., when viewing a specific category or search results) */
+  disableBundling?: boolean;
 }
 
-export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, showAccountDot }: EmailListProps) {
+export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, showAccountDot, disableBundling }: EmailListProps) {
   const [localEmails, setLocalEmails] = useState(emails);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -264,6 +267,28 @@ export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, 
   const hasChecked = checkedIds.size > 0;
   const allChecked = checkedIds.size === localEmails.length && localEmails.length > 0;
 
+  // Partition emails into bundles and individual rows when bundling is enabled
+  const enableBundling = !disableBundling && !systemGroup;
+  const { individual, bundles } = enableBundling
+    ? partitionIntoBundles(localEmails)
+    : { individual: localEmails, bundles: [] };
+
+  // Shared render function for an EmailRow — used both for individual emails
+  // and inside expanded bundles (avoids duplicating the EmailRow JSX)
+  const renderEmailRow = (email: EmailWithCategory) => (
+    <EmailRow
+      key={email.id}
+      email={email}
+      checked={checkedIds.has(email.id)}
+      onToggleChecked={() => toggleChecked(email.id)}
+      onSelect={() => setSelectedEmailId(email.id)}
+      onRemoved={handleEmailRemoved}
+      onUpdated={handleEmailUpdated}
+      onCategoryChanged={handleCategoryChanged}
+      accountColor={showAccountDot ? accountColorMap?.get(email.gmail_account_id) : undefined}
+    />
+  );
+
   return (
     <div>
       {/* Bulk action bar — appears when any emails are checked */}
@@ -322,17 +347,24 @@ export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, 
       )}
 
       <div className="divide-y divide-border">
-        {localEmails.map((email) => (
-          <EmailRow
-            key={email.id}
-            email={email}
-            checked={checkedIds.has(email.id)}
-            onToggleChecked={() => toggleChecked(email.id)}
-            onSelect={() => setSelectedEmailId(email.id)}
-            onRemoved={handleEmailRemoved}
-            onUpdated={handleEmailUpdated}
-            onCategoryChanged={handleCategoryChanged}
-            accountColor={showAccountDot ? accountColorMap?.get(email.gmail_account_id) : undefined}
+        {/* Individual (non-bundled) emails first */}
+        {individual.map((email) => renderEmailRow(email))}
+
+        {/* Bundled categories at the bottom */}
+        {bundles.map((bundle) => (
+          <EmailBundle
+            key={`bundle-${bundle.category}`}
+            category={bundle.category}
+            emails={bundle.emails}
+            onArchiveAll={() => {
+              // Remove all bundled emails from local state
+              const bundledIds = new Set(bundle.emails.map((e) => e.id));
+              setLocalEmails((prev) => prev.filter((e) => !bundledIds.has(e.id)));
+            }}
+            onEmailMoved={() => onEmailMoved?.()}
+            renderEmailRow={renderEmailRow}
+            accountColorMap={accountColorMap}
+            showAccountDot={showAccountDot}
           />
         ))}
       </div>

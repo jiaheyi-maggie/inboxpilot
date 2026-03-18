@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
     .from('emails')
     .select(selectFields)
     .in('gmail_account_id', allAccountIds)
+    .is('snoozed_until', null)
     .order('received_at', { ascending: false })
     .limit(TREE_ACTION_QUERY_LIMIT);
 

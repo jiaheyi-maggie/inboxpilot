@@ -36,7 +36,8 @@ export async function GET() {
       .from('workflow_runs')
       .select('workflow_id, status, completed_at')
       .in('workflow_id', workflowIds)
-      .order('started_at', { ascending: false });
+      .order('started_at', { ascending: false })
+      .limit(200);
 
     if (runs) {
       // Keep only the most recent run per workflow
