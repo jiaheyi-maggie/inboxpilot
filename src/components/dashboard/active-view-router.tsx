@@ -243,7 +243,10 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
   // ── Email event handlers ──
 
   const handleEmailMoved = useCallback(() => {
-    triggerRefresh(['sidebar', 'content', 'counts']);
+    // Only refresh sidebar counts — content area handles its own local state
+    // (EmailList removes from localEmails, FocusView uses processedIds,
+    //  BoardView has local columns state). No content refetch needed.
+    triggerRefresh(['sidebar', 'counts']);
   }, [triggerRefresh]);
 
   const handleEmailRemoved = useCallback(
@@ -252,7 +255,9 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
         setSelectedEmail(null);
         setSelectedEmailId(null);
       }
-      triggerRefresh(['sidebar', 'content', 'counts']);
+      // Remove from local emails state so list view doesn't need a full refetch
+      setEmails((prev) => prev.filter((e) => e.id !== emailId));
+      triggerRefresh(['sidebar', 'counts']);
     },
     [selectedEmail, setSelectedEmailId, triggerRefresh]
   );
@@ -275,7 +280,9 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
       setSelectedEmail((prev) =>
         prev?.id === emailId ? { ...prev, category } : prev
       );
-      triggerRefresh(['sidebar', 'content']);
+      // Remove from local emails state (email moved to different category)
+      setEmails((prev) => prev.filter((e) => e.id !== emailId));
+      triggerRefresh(['sidebar', 'counts']);
     },
     [triggerRefresh]
   );

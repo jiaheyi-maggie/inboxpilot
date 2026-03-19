@@ -232,15 +232,15 @@ export function EmailList({ emails, onEmailMoved, systemGroup, accountColorMap, 
     [systemGroup, onEmailMoved]
   );
 
-  // Category change — structural, triggers tree refresh
+  // Category change — structural move to a different category.
+  // Remove from local list (the email no longer belongs in the current view context).
   const handleCategoryChanged = useCallback(
-    (emailId: string, category: string) => {
-      setLocalEmails((prev) =>
-        prev.map((e) => (e.id === emailId ? { ...e, category } : e))
-      );
+    (emailId: string, _category: string) => {
+      setLocalEmails((prev) => prev.filter((e) => e.id !== emailId));
+      if (selectedEmailId === emailId) setSelectedEmailId(null);
       onEmailMoved?.();
     },
-    [onEmailMoved]
+    [onEmailMoved, selectedEmailId]
   );
 
   const selectedEmail = selectedEmailId
