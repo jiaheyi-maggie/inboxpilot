@@ -190,9 +190,16 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
 
         // Board view needs ALL emails to show complete columns across all categories.
         // Default limit of 50 only returns recent emails which may span 2-3 categories.
-        // Focus view also benefits from a larger batch to provide a meaningful processing queue.
-        if (viewType === 'board' || viewType === 'focus') {
+        if (viewType === 'board') {
           params.set('limit', '500');
+        }
+
+        // Focus mode: limit to 200 recent emails.
+        // The API sorts by received_at DESC, so we get the 200 most recent.
+        // Nobody wants to triage a 7-month-old email in a rapid-processing workflow.
+        // The smart scoring (importance × recency × unread) handles prioritization.
+        if (viewType === 'focus') {
+          params.set('limit', '200');
         }
 
         if (selectedCategory) {

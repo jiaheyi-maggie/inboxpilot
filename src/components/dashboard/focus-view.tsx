@@ -44,11 +44,18 @@ export function FocusView({
   // Separate bundled emails from focus-worthy emails.
   // Bundled categories (newsletters, promotions, etc.) are pulled out of the
   // card stack and presented as a single digest card per category at the end.
+  // Also filters out emails older than 30 days — Focus mode is for current inbox triage.
   const { focusEmails, bundleDigests } = useMemo(() => {
-    // Group by category to determine which ones should be bundled
+    const FOCUS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const cutoff = Date.now() - FOCUS_MAX_AGE_MS;
+
+    // Group by category, excluding old emails
     const byCat = new Map<string, EmailWithCategory[]>();
     const noCat: EmailWithCategory[] = [];
     for (const email of emails) {
+      // Skip emails older than 30 days — nobody wants to triage ancient mail
+      if (new Date(email.received_at).getTime() < cutoff) continue;
+
       if (!email.category) {
         noCat.push(email);
         continue;
