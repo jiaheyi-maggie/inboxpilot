@@ -42,3 +42,6 @@ next-env.d.ts
 SETUP.md
 
 logo*
+public/icons/
+public/logo.png
+public/wordmark.svg

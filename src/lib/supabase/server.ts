@@ -22,13 +22,6 @@ export async function createServerSupabaseClient() {
           }
         },
       },
-      // Match middleware cookieOptions for consistency
-      cookieOptions: {
-        path: '/',
-        sameSite: 'lax' as const,
-        httpOnly: false,
-        maxAge: 400 * 24 * 60 * 60,
-      },
     }
   );
 }

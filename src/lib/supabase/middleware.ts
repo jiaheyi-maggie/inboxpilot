@@ -22,17 +22,6 @@ export async function updateSession(request: NextRequest) {
           );
         },
       },
-      // Explicit cookie options to guarantee session persistence across browser
-      // restarts. Without these, some environments may default to session-only
-      // cookies (no maxAge) which are cleared when the browser/tab closes.
-      // maxAge: 400 days = maximum allowed by Chrome (RFC 6265bis).
-      cookieOptions: {
-        path: '/',
-        secure: request.nextUrl.protocol === 'https:',
-        sameSite: 'lax' as const,
-        httpOnly: false,
-        maxAge: 400 * 24 * 60 * 60, // 400 days
-      },
     }
   );
 
@@ -40,9 +29,18 @@ export async function updateSession(request: NextRequest) {
   // access token and, if expired, uses the refresh token to obtain new tokens.
   // The new tokens are written back to cookies via setAll(). Without this call,
   // the access token expires after 1 hour and the user must re-authenticate.
+  const authCookies = request.cookies.getAll().filter(c => c.name.startsWith('sb-'));
+  console.log(`[middleware] ${request.nextUrl.pathname} | auth cookies: ${authCookies.length > 0 ? authCookies.map(c => `${c.name}=${c.value.slice(0, 20)}...`).join(', ') : 'NONE'}`);
+
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+
+  if (authError) {
+    console.error(`[middleware] getUser error: ${authError.message}`);
+  }
+  console.log(`[middleware] ${request.nextUrl.pathname} | user: ${user ? user.email : 'null'}`);
 
   // Redirect unauthenticated users away from app routes
   const isAppRoute =

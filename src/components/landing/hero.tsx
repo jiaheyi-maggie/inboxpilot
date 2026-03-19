@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import Image from 'next/image';
 import { FolderTree, Sparkles, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -52,10 +51,7 @@ export function LandingHero({ error }: { error?: string }) {
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Image src="/logo.png" alt="InboxPilot" width={24} height={24} className="rounded" />
-          <span className="font-bold text-slate-900">InboxPilot</span>
-        </div>
+        <img src="/wordmark.svg" alt="InboxPilot" className="h-7" />
       </header>
 
       {/* Hero */}
