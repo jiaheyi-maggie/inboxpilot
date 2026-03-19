@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         Privacy Policy
       </h1>
       <p className="text-sm text-slate-500 mb-8">
-        Last updated: March 11, 2026
+        Last updated: March 19, 2026
       </p>
 
       <section className="space-y-6 text-sm leading-relaxed">
@@ -23,8 +23,10 @@ export default function PrivacyPage() {
             What We Collect
           </h2>
           <p>
-            InboxPilot accesses your Gmail inbox in read-only mode via the
-            Google Gmail API. We collect and store:
+            InboxPilot accesses your Gmail inbox via the Google Gmail API
+            using the <code>gmail.modify</code> scope. This allows InboxPilot
+            to read email metadata and perform organizational actions on your
+            behalf. We collect and store:
           </p>
           <ul className="list-disc ml-5 mt-2 space-y-1">
             <li>Your email address (for account identification)</li>
@@ -35,8 +37,10 @@ export default function PrivacyPage() {
             </li>
           </ul>
           <p className="mt-2">
-            We do <strong>not</strong> read or store the full body content of
-            your emails. Only metadata and short snippets are processed.
+            Email body content is fetched on demand for display and AI-assisted
+            reply drafting, but is <strong>not</strong> stored permanently or
+            used for AI training. Only metadata and short snippets are used for
+            categorization.
           </p>
         </div>
 
@@ -52,6 +56,10 @@ export default function PrivacyPage() {
               To categorize emails using AI (Anthropic Claude API) based on
               metadata and snippets
             </li>
+            <li>
+              To perform email actions you initiate: marking as read/unread,
+              archiving, trashing, starring, snoozing, and sending replies
+            </li>
             <li>To maintain your session and preferences</li>
           </ul>
         </div>
@@ -62,8 +70,9 @@ export default function PrivacyPage() {
           </h2>
           <ul className="list-disc ml-5 space-y-1">
             <li>
-              <strong>Google Gmail API</strong> — read-only access to fetch
-              email metadata
+              <strong>Google Gmail API</strong> — read and modify access to
+              sync email metadata and perform user-initiated actions (archive,
+              trash, star, mark read/unread, send replies)
             </li>
             <li>
               <strong>Supabase</strong> — authentication and database hosting

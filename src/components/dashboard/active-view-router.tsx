@@ -18,9 +18,11 @@ interface ActiveViewRouterProps {
   showAccountDot?: boolean;
   /** Map of gmail_account_id -> display name (for account dimension grouping) */
   accountDisplayMap?: Map<string, string>;
+  /** Register an email ID as recently acted on to suppress self-inflicted Realtime events */
+  onUserAction?: (emailId: string) => void;
 }
 
-export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDisplayMap }: ActiveViewRouterProps) {
+export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDisplayMap, onUserAction }: ActiveViewRouterProps) {
   const {
     viewType,
     filters,
@@ -242,12 +244,17 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
 
   // ── Email event handlers ──
 
-  const handleEmailMoved = useCallback(() => {
+  const handleEmailMoved = useCallback((emailId?: string) => {
+    // Register the email as a recent user action so Realtime UPDATE events
+    // for it are suppressed (prevents self-inflicted content refetch loops).
+    if (emailId && onUserAction) {
+      onUserAction(emailId);
+    }
     // Only refresh sidebar counts — content area handles its own local state
     // (EmailList removes from localEmails, FocusView uses processedIds,
     //  BoardView has local columns state). No content refetch needed.
     triggerRefresh(['sidebar', 'counts']);
-  }, [triggerRefresh]);
+  }, [triggerRefresh, onUserAction]);
 
   const handleEmailRemoved = useCallback(
     (emailId: string) => {

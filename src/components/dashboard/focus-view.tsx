@@ -25,7 +25,7 @@ import type { EmailWithCategory } from '@/types';
 interface FocusViewProps {
   emails: EmailWithCategory[];
   /** Called when an email is archived or starred (triggers sidebar/content refresh) */
-  onEmailMoved: () => void;
+  onEmailMoved: (emailId?: string) => void;
   /** Called when the user taps a card to open the email detail */
   onSelectEmail: (emailId: string) => void;
   /** Map of gmail_account_id -> hex color */
@@ -186,10 +186,10 @@ export function FocusView({
             next.delete(emailId);
             return next;
           });
-          onEmailMoved();
+          onEmailMoved(emailId);
         },
       });
-      onEmailMoved();
+      onEmailMoved(emailId);
     } else {
       // Roll back: remove from processed so user can retry
       setProcessedIds((prev) => {
@@ -225,10 +225,10 @@ export function FocusView({
             next.delete(emailId);
             return next;
           });
-          onEmailMoved();
+          onEmailMoved(emailId);
         },
       });
-      onEmailMoved();
+      onEmailMoved(emailId);
     } else {
       // Roll back: remove from processed so user can retry
       setProcessedIds((prev) => {
@@ -293,10 +293,10 @@ export function FocusView({
               next.delete(emailId);
               return next;
             });
-            onEmailMoved();
+            onEmailMoved(emailId);
           },
         });
-        onEmailMoved();
+        onEmailMoved(emailId);
       } catch {
         toast.error('Network error');
         setProcessedIds((prev) => {
@@ -349,10 +349,12 @@ export function FocusView({
               next.delete(category);
               return next;
             });
-            onEmailMoved();
+            // Pass first email ID for Realtime suppression; bulk ops are less
+            // sensitive but still benefit from suppressing the first UPDATE.
+            onEmailMoved(emailIds[0]);
           },
         });
-        onEmailMoved();
+        onEmailMoved(emailIds[0]);
       } catch {
         toast.error('Network error');
       } finally {

@@ -74,30 +74,40 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
 
   const handleSync = useCallback(() => {
     toast.info('Syncing emails...');
+    window.dispatchEvent(new Event('inboxpilot:sync-start'));
     fetch('/api/sync', { method: 'POST' })
       .then((res) => {
         if (res.ok) {
           window.dispatchEvent(new Event('inboxpilot:sync-complete'));
           toast.success('Sync complete');
         } else {
+          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
           toast.error('Sync failed');
         }
       })
-      .catch(() => toast.error('Sync failed — network error'));
+      .catch(() => {
+        window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+        toast.error('Sync failed — network error');
+      });
   }, []);
 
   const handleCategorize = useCallback(() => {
     toast.info('Categorizing emails...');
+    window.dispatchEvent(new Event('inboxpilot:sync-start'));
     fetch('/api/categorize', { method: 'POST' })
       .then((res) => {
         if (res.ok) {
           toast.success('Categorization complete');
           window.dispatchEvent(new Event('inboxpilot:sync-complete'));
         } else {
+          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
           toast.error('Categorization failed');
         }
       })
-      .catch(() => toast.error('Categorization failed — network error'));
+      .catch(() => {
+        window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+        toast.error('Categorization failed — network error');
+      });
   }, []);
 
   return (

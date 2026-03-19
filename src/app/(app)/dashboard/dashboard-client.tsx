@@ -49,11 +49,29 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
   const autoSyncTriggered = useRef(false);
   const [externalRefreshKey, setExternalRefreshKey] = useState(0);
 
-  // Listen for sync-complete events from AppShell's SyncStatus
+  // Ref shared with DashboardLayout to suppress Realtime events during sync.
+  // When sync is in progress, every synced email fires a Realtime INSERT event.
+  // Without suppression, 50 emails = ~20 debounced sidebar refetches over 10s.
+  // The sync dispatches its own refresh on completion, so Realtime events are redundant noise.
+  const isSyncingRef = useRef(false);
+
+  // Listen for sync lifecycle events from AppShell's SyncStatus + CommandPalette.
+  // sync-start: suppress Realtime events (they're redundant during sync).
+  // sync-complete: re-enable Realtime, trigger a single bulk refresh.
   useEffect(() => {
-    const handler = () => setExternalRefreshKey((k) => k + 1);
-    window.addEventListener('inboxpilot:sync-complete', handler);
-    return () => window.removeEventListener('inboxpilot:sync-complete', handler);
+    const handleStart = () => {
+      isSyncingRef.current = true;
+    };
+    const handleComplete = () => {
+      isSyncingRef.current = false;
+      setExternalRefreshKey((k) => k + 1);
+    };
+    window.addEventListener('inboxpilot:sync-start', handleStart);
+    window.addEventListener('inboxpilot:sync-complete', handleComplete);
+    return () => {
+      window.removeEventListener('inboxpilot:sync-start', handleStart);
+      window.removeEventListener('inboxpilot:sync-complete', handleComplete);
+    };
   }, []);
 
   // Auto-sync on mount if last sync was >5 min ago
@@ -65,29 +83,28 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
       : 0;
     if (Date.now() - lastSyncTime > STALE_MS) {
       autoSyncTriggered.current = true;
+      isSyncingRef.current = true;
       fetch('/api/sync', { method: 'POST' })
         .then(() => {
-          // Only increment the refresh key — no router.refresh() needed.
-          // The externalRefreshKey change propagates to ViewProvider which
-          // increments all scoped refresh keys, triggering data re-fetches.
-          // Calling router.refresh() on top of that causes a redundant
-          // full RSC re-render (double render on first load).
+          isSyncingRef.current = false;
           setExternalRefreshKey((k) => k + 1);
         })
-        .catch(() => {});
+        .catch(() => {
+          isSyncingRef.current = false;
+        });
     }
   }, [account]);
 
   return (
     <ViewProvider key={viewConfig.id} initialView={viewConfig} externalRefreshKey={externalRefreshKey}>
-      <DashboardLayout accounts={accounts} />
+      <DashboardLayout accounts={accounts} isSyncingRef={isSyncingRef} />
     </ViewProvider>
   );
 }
 
 // ── Inner layout component that can use useView() ──
 
-function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
+function DashboardLayout({ accounts, isSyncingRef }: { accounts: AccountInfo[]; isSyncingRef: React.RefObject<boolean> }) {
   const { sidebarRefreshKey, unreadRefreshKey, countsRefreshKey, triggerRefresh, viewConfig, selectedCategory, selectedAccountId, selectedSystemGroup, setSelectedCategory, setSelectedSystemGroup, setSelectedAccountId, setSelectedEmailId, searchQuery, clearSearch } = useView();
 
   // Escape key clears search first, then category/system group selection
@@ -175,6 +192,13 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
   const initialLoadDoneRef = useRef(false);
   const hasLoadedRef = useRef(false);
 
+  // Track email IDs the user just acted on (star, archive, snooze) to suppress
+  // self-inflicted Realtime UPDATE events. Without this, starring an email causes:
+  // user stars -> DB updates is_starred -> Realtime UPDATE fires (is_starred in VISIBLE_FIELDS)
+  // -> content refetches -> FocusView re-renders with new emails array -> flash/reload.
+  // IDs are auto-cleared after 5 seconds to avoid memory leaks.
+  const recentActionsRef = useRef<Set<string>>(new Set());
+
   const fetchRootNodes = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) setSidebarLoading(true);
     setSidebarError(false);
@@ -248,6 +272,15 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'emails' },
         (payload) => {
+          // Suppress Realtime INSERT events during sync. The sync process
+          // fires an INSERT for every newly synced email. Without suppression,
+          // 50 emails synced over 10s = ~20 debounced sidebar refetches.
+          // The sync dispatches a single bulk refresh when complete.
+          // Tradeoff: a genuinely new email arriving mid-sync appears ~10-20s
+          // late (after the sync-complete refresh) instead of instantly.
+          // UPDATEs are NOT suppressed — the VISIBLE_FIELDS filter handles those.
+          if (isSyncingRef.current) return;
+
           const subject = (payload.new as Record<string, unknown>)?.subject as string;
           if (initialLoadDoneRef.current) {
             debouncedRefresh({
@@ -263,6 +296,12 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'emails' },
         (payload) => {
+          // UPDATEs are NOT suppressed during sync because:
+          // 1. Categorization UPDATEs only touch categorization_status/is_categorized,
+          //    which are NOT in VISIBLE_FIELDS — the filter below already skips them.
+          // 2. User-initiated UPDATEs (star, archive) should still be handled
+          //    (the recentActionsRef filter prevents self-inflicted loops).
+
           // Only refresh when a user-visible field actually changed.
           // Background categorization updates (categorization_status, is_categorized)
           // fire many UPDATE events that would cause periodic re-renders while idle.
@@ -274,6 +313,14 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
             );
             if (!hasVisibleChange) return;
           }
+
+          // Suppress self-inflicted updates from user actions (star, archive, etc.).
+          // Without this, starring in FocusView triggers:
+          // user stars -> DB updates is_starred -> Realtime fires -> content refetches
+          // -> FocusView re-renders -> visible flash/reload.
+          const emailId = (newRow as Record<string, unknown> | undefined)?.id as string | undefined;
+          if (emailId && recentActionsRef.current.has(emailId)) return;
+
           debouncedRefresh({ scope: ['content', 'counts'] });
         },
       )
@@ -285,7 +332,17 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [debouncedRefresh]);
+  }, [debouncedRefresh, isSyncingRef]);
+
+  // Register an email ID as recently acted on by the user, suppressing
+  // Realtime UPDATE events for it for 5 seconds. Used by FocusView/EmailList
+  // action handlers (star, archive, snooze) to prevent self-inflicted re-renders.
+  const registerRecentAction = useCallback((emailId: string) => {
+    recentActionsRef.current.add(emailId);
+    setTimeout(() => {
+      recentActionsRef.current.delete(emailId);
+    }, 5000);
+  }, []);
 
   // Persist sidebar layout to localStorage
   const [savedLayout] = useState<Layout | undefined>(() => {
@@ -346,7 +403,7 @@ function DashboardLayout({ accounts }: { accounts: AccountInfo[] }) {
       </div>
       {/* Active view content — use native overflow instead of ScrollArea so board view can scroll horizontally */}
       <div className="flex-1 min-h-0 overflow-auto">
-        <ActiveViewRouter accountColorMap={accountColorMap} showAccountDot={accounts.length > 1} accountDisplayMap={accountDisplayMap} />
+        <ActiveViewRouter accountColorMap={accountColorMap} showAccountDot={accounts.length > 1} accountDisplayMap={accountDisplayMap} onUserAction={registerRecentAction} />
       </div>
     </div>
   );

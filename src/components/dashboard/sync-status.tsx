@@ -18,6 +18,8 @@ export function SyncStatus({ onSyncComplete }: SyncStatusProps) {
   const triggerSync = useCallback(async () => {
     setSyncing(true);
     setResult(null);
+    // Notify dashboard to suppress Realtime events during sync
+    window.dispatchEvent(new Event('inboxpilot:sync-start'));
 
     try {
       const res = await fetch('/api/sync', { method: 'POST' });

@@ -14,7 +14,7 @@ export default function TermsPage() {
         Terms of Service
       </h1>
       <p className="text-sm text-slate-500 mb-8">
-        Last updated: March 11, 2026
+        Last updated: March 19, 2026
       </p>
 
       <section className="space-y-6 text-sm leading-relaxed">
@@ -34,8 +34,11 @@ export default function TermsPage() {
           </h2>
           <p>
             InboxPilot is a web application that connects to your Gmail account
-            (read-only) and uses AI to automatically categorize and organize
-            your email inbox into a navigable tree view.
+            and uses AI to automatically categorize, organize, and help you
+            manage your email inbox. InboxPilot can read email metadata, perform
+            organizational actions (archive, trash, star, mark read/unread,
+            snooze), and send replies on your behalf when you explicitly
+            initiate these actions.
           </p>
         </div>
 
@@ -75,8 +78,11 @@ export default function TermsPage() {
           </h2>
           <p>
             Email categorization is performed by AI and may not always be
-            accurate. InboxPilot provides organizational suggestions only and
-            does not modify, delete, or send emails on your behalf.
+            accurate. InboxPilot performs email actions (archive, trash, star,
+            snooze, send replies) only when you explicitly initiate them.
+            AI-drafted replies are always shown for your review and editing
+            before sending — InboxPilot never sends emails automatically
+            without your confirmation.
           </p>
         </div>
 
