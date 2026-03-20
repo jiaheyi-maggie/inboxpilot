@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Mono white version for dark backgrounds -->
+  <rect x="130" y="100" width="240" height="170" rx="24" fill="white" opacity="0.3" transform="rotate(-6,250,185)"/>
+  <rect x="142" y="190" width="240" height="170" rx="24" fill="white" transform="rotate(2,262,275)"/>
+</svg>

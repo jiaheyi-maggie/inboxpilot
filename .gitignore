@@ -40,8 +40,3 @@ next-env.d.ts
 .claude/
 
 SETUP.md
-
-logo*
-public/icons/
-public/logo.png
-public/wordmark.svg

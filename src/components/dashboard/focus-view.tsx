@@ -13,11 +13,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { CategoryBadge } from './category-badge';
 import { FocusCard } from './focus-card';
 import { SnoozePicker } from './snooze-picker';
 import { showUndoToast } from '@/lib/undo-toast';
-import { shouldBundle } from './email-bundle';
 import type { EmailWithCategory } from '@/types';
 
 // ── Props ──
@@ -41,49 +39,12 @@ export function FocusView({
   accountColorMap,
   showAccountDot,
 }: FocusViewProps) {
-  // Separate bundled emails from focus-worthy emails.
-  // Bundled categories (newsletters, promotions, etc.) are pulled out of the
-  // card stack and presented as a single digest card per category at the end.
-  // Also filters out emails older than 30 days — Focus mode is for current inbox triage.
-  const { focusEmails, bundleDigests } = useMemo(() => {
-    const FOCUS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-    const cutoff = Date.now() - FOCUS_MAX_AGE_MS;
-
-    // Group by category, excluding old emails
-    const byCat = new Map<string, EmailWithCategory[]>();
-    const noCat: EmailWithCategory[] = [];
-    for (const email of emails) {
-      // Skip emails older than 30 days — nobody wants to triage ancient mail
-      if (new Date(email.received_at).getTime() < cutoff) continue;
-
-      if (!email.category) {
-        noCat.push(email);
-        continue;
-      }
-      const list = byCat.get(email.category);
-      if (list) list.push(email);
-      else byCat.set(email.category, [email]);
-    }
-
-    const focus: EmailWithCategory[] = [...noCat];
-    const digests: { category: string; emails: EmailWithCategory[] }[] = [];
-
-    for (const [category, catEmails] of byCat) {
-      const withScore = catEmails.filter((e) => e.importance_score !== null);
-      const avgImportance =
-        withScore.length > 0
-          ? withScore.reduce((sum, e) => sum + (e.importance_score ?? 0), 0) / withScore.length
-          : null;
-
-      if (shouldBundle(category, catEmails.length, avgImportance)) {
-        digests.push({ category, emails: catEmails });
-      } else {
-        focus.push(...catEmails);
-      }
-    }
-
-    return { focusEmails: focus, bundleDigests: digests };
-  }, [emails]);
+  // Focus mode does NOT bundle. Every email goes into the card stack,
+  // sorted by the smart score (importance × recency × unread). The scoring
+  // naturally puts newsletters/noise at the bottom — no need to remove them.
+  // Bundling is a List view feature for reducing visual clutter; in Focus mode
+  // you process ONE card at a time, so there's no clutter to reduce.
+  const focusEmails = emails;
 
   // Smart sort: blended score of importance x recency
   // A "high" email from 5 minutes ago beats a "critical" email from 2 weeks ago.
@@ -124,11 +85,9 @@ export function FocusView({
   const currentEmail = queue[0] ?? null;
   const nextEmail = queue[1] ?? null;
 
-  // Total = focus emails only (bundles are separate), progress = how many we've processed
   const totalCount = sortedEmails.length;
   const processedCount = processedIds.size;
   const progressPercent = totalCount > 0 ? (processedCount / totalCount) * 100 : 0;
-  const totalBundledCount = bundleDigests.reduce((sum, d) => sum + d.emails.length, 0);
 
   // Reset processed IDs when the email set changes (e.g., different category/account selected)
   const emailIdsKey = useMemo(() => emails.map((e) => e.id).sort().join(','), [emails]);
@@ -137,7 +96,6 @@ export function FocusView({
     if (emailIdsKey !== prevEmailIdsKeyRef.current) {
       prevEmailIdsKeyRef.current = emailIdsKey;
       setProcessedIds(new Set());
-      setArchivedBundles(new Set());
     }
   }, [emailIdsKey]);
 
@@ -318,61 +276,6 @@ export function FocusView({
     [currentEmail, actionLoading, onEmailMoved],
   );
 
-  // ── Bundle digest archive handler ──
-
-  const [bundleArchiving, setBundleArchiving] = useState<string | null>(null);
-  const [archivedBundles, setArchivedBundles] = useState<Set<string>>(new Set());
-
-  const handleArchiveBundle = useCallback(
-    async (category: string, bundleEmails: EmailWithCategory[]) => {
-      if (bundleArchiving) return;
-      setBundleArchiving(category);
-      try {
-        const emailIds = bundleEmails.map((e) => e.id);
-        const res = await fetch('/api/emails/tree-actions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'archive', emailIds }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          toast.error(data.error ?? 'Archive failed');
-          return;
-        }
-        setArchivedBundles((prev) => new Set(prev).add(category));
-        showUndoToast({
-          label: `Archived ${bundleEmails.length} ${category} emails`,
-          onUndo: async () => {
-            const undoRes = await fetch('/api/emails/tree-actions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'unarchive', emailIds }),
-            });
-            if (!undoRes.ok) throw new Error('Undo failed');
-          },
-          onUndoComplete: () => {
-            setArchivedBundles((prev) => {
-              const next = new Set(prev);
-              next.delete(category);
-              return next;
-            });
-            // Pass first email ID for Realtime suppression; bulk ops are less
-            // sensitive but still benefit from suppressing the first UPDATE.
-            onEmailMoved(emailIds[0]);
-          },
-        });
-        onEmailMoved(emailIds[0]);
-      } catch {
-        toast.error('Network error');
-      } finally {
-        setBundleArchiving(null);
-      }
-    },
-    [bundleArchiving, onEmailMoved],
-  );
-
-  const activeBundleDigests = bundleDigests.filter((d) => !archivedBundles.has(d.category));
-
   // ── Keyboard shortcuts ──
 
   useEffect(() => {
@@ -425,46 +328,9 @@ export function FocusView({
     return () => window.removeEventListener('keydown', handler);
   }, [handleArchive, handleSkip, handleStar, handleOpen, showHelp]);
 
-  // ── Bundle digest section (shown in empty/caught-up states and after all cards) ──
+  // ── Empty / completion states ──
 
-  const bundleDigestSection = activeBundleDigests.length > 0 ? (
-    <div className="w-full max-w-lg mx-auto mt-6 space-y-3">
-      <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-1">
-        Bundled emails
-      </p>
-      {activeBundleDigests.map((digest) => (
-        <div
-          key={digest.category}
-          className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-border bg-card"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <CategoryBadge category={digest.category} />
-            <span className="text-sm text-muted-foreground">
-              {digest.emails.length} email{digest.emails.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-shrink-0 gap-1.5"
-            onClick={() => handleArchiveBundle(digest.category, digest.emails)}
-            disabled={bundleArchiving === digest.category}
-          >
-            {bundleArchiving === digest.category ? (
-              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : (
-              <Archive className="h-3.5 w-3.5" />
-            )}
-            Archive All
-          </Button>
-        </div>
-      ))}
-    </div>
-  ) : null;
-
-  // ── Empty state ──
-
-  if (totalCount === 0 && totalBundledCount === 0) {
+  if (totalCount === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center px-6">
         <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
@@ -478,23 +344,6 @@ export function FocusView({
     );
   }
 
-  // No focus-worthy emails, but there are bundles
-  if (totalCount === 0 && totalBundledCount > 0) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-center px-6">
-        <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
-          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
-        </div>
-        <h2 className="text-xl font-semibold text-foreground">No important emails to review</h2>
-        <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-          You have {totalBundledCount} bundled email{totalBundledCount !== 1 ? 's' : ''} you can archive in bulk.
-        </p>
-        {bundleDigestSection}
-      </div>
-    );
-  }
-
-  // All focus emails processed — show inbox zero + any remaining bundles
   if (queue.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center px-6">
@@ -513,7 +362,6 @@ export function FocusView({
         >
           Review again
         </Button>
-        {bundleDigestSection}
       </div>
     );
   }
@@ -525,11 +373,6 @@ export function FocusView({
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
           <span>
             {processedCount + 1} of {totalCount} email{totalCount !== 1 ? 's' : ''}
-            {totalBundledCount > 0 && (
-              <span className="text-muted-foreground/60 ml-1">
-                ({totalBundledCount} bundled)
-              </span>
-            )}
           </span>
           <button
             onClick={() => setShowHelp(true)}
