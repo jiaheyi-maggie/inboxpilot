@@ -17,6 +17,7 @@ import type {
   WorkflowActionType,
   WorkflowConditionField,
   WorkflowConditionOperator,
+  SmartConditionContext,
 } from '@/types';
 
 /** Hook to fetch user categories from API, with hardcoded fallback. */
@@ -240,7 +241,139 @@ const CONDITION_OPERATORS: { value: WorkflowConditionOperator; label: string }[]
   { value: 'is_false', label: 'is false' },
 ];
 
+const SMART_EXAMPLES = [
+  'Is this a promotional email without a promo code?',
+  'Does this email require a response from me?',
+  'Is this a shipping or delivery notification?',
+  'Does this contain financial data or sensitive info?',
+  'Is this a meeting request I should accept?',
+];
+
 function ConditionConfig({
+  data,
+  onChange,
+  categories,
+  accounts,
+}: {
+  data: ConditionNodeData;
+  onChange: (data: ConditionNodeData) => void;
+  categories: string[];
+  accounts: AccountOption[];
+}) {
+  const isSmart = data.mode === 'smart';
+
+  return (
+    <>
+      {/* Mode toggle */}
+      <div className="flex gap-2 mb-1">
+        <button
+          type="button"
+          onClick={() => onChange({ ...data, mode: 'field' })}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            !isSmart
+              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          }`}
+        >
+          Field Match
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange({ ...data, mode: 'smart', prompt: data.prompt ?? '' })}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            isSmart
+              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          }`}
+        >
+          Smart (AI)
+        </button>
+      </div>
+
+      {isSmart ? (
+        <SmartConditionConfig data={data} onChange={onChange} />
+      ) : (
+        <FieldConditionConfig data={data} onChange={onChange} categories={categories} accounts={accounts} />
+      )}
+    </>
+  );
+}
+
+function SmartConditionConfig({
+  data,
+  onChange,
+}: {
+  data: ConditionNodeData;
+  onChange: (data: ConditionNodeData) => void;
+}) {
+  const ctx = data.contextFields ?? {
+    includeSubject: true,
+    includeSnippet: true,
+    includeBody: false,
+    includeSender: false,
+    includeCategory: false,
+  };
+
+  const updateCtx = (partial: Partial<SmartConditionContext>) => {
+    onChange({ ...data, contextFields: { ...ctx, ...partial } });
+  };
+
+  return (
+    <>
+      <FieldLabel label="Describe your condition">
+        <textarea
+          value={data.prompt ?? ''}
+          onChange={(e) => onChange({ ...data, prompt: e.target.value })}
+          placeholder="e.g. Is this a promotional email that does NOT contain a promo code?"
+          rows={3}
+          maxLength={500}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+        />
+        <span className="text-[10px] text-muted-foreground mt-0.5 block">
+          AI will evaluate this for each email and return Yes or No
+        </span>
+      </FieldLabel>
+
+      <FieldLabel label="Include in context">
+        <div className="space-y-1.5 mt-1">
+          {[
+            { key: 'includeSubject' as const, label: 'Email subject' },
+            { key: 'includeSnippet' as const, label: 'Email snippet' },
+            { key: 'includeSender' as const, label: 'Sender info' },
+            { key: 'includeCategory' as const, label: 'Current category' },
+            { key: 'includeBody' as const, label: 'Full body (slower)' },
+          ].map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={ctx[key]}
+                onChange={(e) => updateCtx({ [key]: e.target.checked })}
+                className="rounded border-input"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </FieldLabel>
+
+      <div className="space-y-1 mt-2">
+        <span className="text-[10px] font-medium text-muted-foreground block">Examples (click to use)</span>
+        {SMART_EXAMPLES.map((ex) => (
+          <button
+            key={ex}
+            type="button"
+            onClick={() => onChange({ ...data, prompt: ex })}
+            className="block text-xs text-violet-600 dark:text-violet-400 hover:underline truncate w-full text-left"
+          >
+            {ex}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function FieldConditionConfig({
   data,
   onChange,
   categories,

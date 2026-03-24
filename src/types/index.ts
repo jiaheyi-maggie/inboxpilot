@@ -300,10 +300,23 @@ export interface TriggerNodeData {
   };
 }
 
+export interface SmartConditionContext {
+  includeSubject: boolean;
+  includeSnippet: boolean;
+  includeBody: boolean;
+  includeSender: boolean;
+  includeCategory: boolean;
+}
+
 export interface ConditionNodeData {
+  mode?: 'field' | 'smart';        // undefined = legacy 'field' behavior
+  // Field-based condition (existing)
   field: WorkflowConditionField;
   operator: WorkflowConditionOperator;
   value: string;
+  // Smart condition (only used when mode === 'smart')
+  prompt?: string;
+  contextFields?: SmartConditionContext;
 }
 
 export interface ActionNodeData {
@@ -354,6 +367,7 @@ export interface WorkflowExecutionStep {
   nodeType: WorkflowNodeType;
   result: 'passed' | 'failed' | 'skipped' | 'executed' | 'error';
   detail?: string;
+  reasoning?: string;      // AI explanation for smart conditions
   timestamp: string;
 }
 

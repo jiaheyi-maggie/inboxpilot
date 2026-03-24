@@ -60,6 +60,26 @@ const PALETTE_ITEMS: { section: string; items: PaletteItem[] }[] = [
         defaultData: { field: 'category', operator: 'equals', value: '' } as ConditionNodeData,
         color: 'blue',
       },
+      {
+        nodeType: 'condition',
+        label: 'Smart Condition',
+        icon: Sparkles,
+        defaultData: {
+          mode: 'smart',
+          field: 'category',
+          operator: 'equals',
+          value: '',
+          prompt: '',
+          contextFields: {
+            includeSubject: true,
+            includeSnippet: true,
+            includeBody: false,
+            includeSender: false,
+            includeCategory: false,
+          },
+        } as ConditionNodeData,
+        color: 'violet',
+      },
     ],
   },
   {

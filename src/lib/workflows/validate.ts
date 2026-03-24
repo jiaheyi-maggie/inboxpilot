@@ -1,4 +1,4 @@
-import type { WorkflowGraph, WorkflowNode, WorkflowEdge } from '@/types';
+import type { WorkflowGraph, WorkflowNode, WorkflowEdge, ConditionNodeData } from '@/types';
 
 interface ValidationResult {
   valid: boolean;
@@ -76,6 +76,22 @@ export function validateWorkflow(graph: WorkflowGraph): ValidationResult {
     const triggerInEdges = edges.filter((e) => e.target === triggers[0].id);
     if (triggerInEdges.length > 0) {
       errors.push('Trigger node cannot have incoming connections');
+    }
+  }
+
+  // --- Smart condition limits ---
+  const smartConditions = conditionNodes.filter(
+    (n) => (n.data as ConditionNodeData).mode === 'smart'
+  );
+  if (smartConditions.length > 3) {
+    errors.push(`Workflow has ${smartConditions.length} smart conditions — maximum is 3`);
+  }
+  for (const sc of smartConditions) {
+    const scData = sc.data as ConditionNodeData;
+    if (!scData.prompt?.trim()) {
+      errors.push(`Smart condition node "${sc.id}" has no prompt — describe what to evaluate`);
+    } else if (scData.prompt.length > 500) {
+      errors.push(`Smart condition "${sc.id}" prompt exceeds 500 characters`);
     }
   }
 

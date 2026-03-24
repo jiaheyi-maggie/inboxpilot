@@ -68,7 +68,7 @@ const WORKFLOW_TOOL: Anthropic.Messages.Tool = {
       },
       conditions: {
         type: 'array',
-        description: 'Optional conditions to filter which emails match. Leave empty if no filtering needed.',
+        description: 'Optional field-based conditions for exact matching. Leave empty if no filtering needed.',
         items: {
           type: 'object',
           properties: {
@@ -83,6 +83,17 @@ const WORKFLOW_TOOL: Anthropic.Messages.Tool = {
             value: { type: 'string', description: 'Value to compare against. For boolean operators (is_true/is_false), leave empty.' },
           },
           required: ['field', 'operator'],
+        },
+      },
+      smart_conditions: {
+        type: 'array',
+        description: 'AI-evaluated conditions for semantic/intent-based filtering. Use when the rule requires UNDERSTANDING or JUDGMENT about email content (e.g., "looks like a meeting request", "is promotional but has a real coupon code"). Use regular conditions for exact field matching.',
+        items: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: 'Natural language condition to evaluate against each email' },
+          },
+          required: ['prompt'],
         },
       },
       actions: {
@@ -120,6 +131,7 @@ const WORKFLOW_TOOL: Anthropic.Messages.Tool = {
 function buildGraph(input: {
   trigger: { triggerType: string; config?: Record<string, unknown> };
   conditions?: { field: string; operator: string; value?: string }[];
+  smart_conditions?: { prompt: string }[];
   actions: { actionType: string; config?: Record<string, unknown> }[];
 }): WorkflowGraph {
   const nodes: WorkflowGraph['nodes'] = [];
@@ -168,6 +180,58 @@ function buildGraph(input: {
       // Validator requires both true and false edges on condition nodes.
       // Add a "stop" action on the false branch (no-op — mark_read is idempotent).
       const stopId = `stop-${i + 1}`;
+      nodes.push({
+        id: stopId,
+        type: 'action',
+        position: { x, y: Y + 200 },
+        data: { actionType: 'mark_read' as WorkflowActionType, config: {} },
+      });
+      edges.push({
+        id: `edge-${condId}-false-${stopId}`,
+        source: condId,
+        target: stopId,
+        sourceHandle: 'false',
+      });
+
+      lastNodeId = condId;
+      x += SPACING;
+    }
+  }
+
+  // Smart condition nodes (AI-evaluated)
+  if (input.smart_conditions && input.smart_conditions.length > 0) {
+    const condOffset = (input.conditions?.length ?? 0);
+    for (let i = 0; i < input.smart_conditions.length; i++) {
+      const sc = input.smart_conditions[i];
+      const condId = `condition-${condOffset + i + 1}`;
+      nodes.push({
+        id: condId,
+        type: 'condition',
+        position: { x, y: Y },
+        data: {
+          mode: 'smart',
+          field: 'category' as WorkflowConditionField,
+          operator: 'equals' as WorkflowConditionOperator,
+          value: '',
+          prompt: sc.prompt,
+          contextFields: {
+            includeSubject: true,
+            includeSnippet: true,
+            includeBody: false,
+            includeSender: false,
+            includeCategory: false,
+          },
+        },
+      });
+      edges.push({
+        id: `edge-${lastNodeId}-${condId}`,
+        source: lastNodeId,
+        target: condId,
+        sourceHandle: lastNodeId.startsWith('condition') ? 'true' : null,
+      });
+
+      // False branch stop node
+      const stopId = `stop-${condOffset + i + 1}`;
       nodes.push({
         id: stopId,
         type: 'action',
@@ -237,7 +301,8 @@ IMPORTANT — When to use recategorize vs reassign_category vs conditions:
 - Use "reassign_category" when the user wants to move ALL emails to a specific category unconditionally.
 - Do NOT use condition nodes with field="subject" operator="contains" to approximate semantic classification. That approach is brittle and misses context. If the user's intent requires understanding email content, use recategorize.
 
-- The summary should be a clear human-readable description: "When [trigger], if [conditions], then [actions]"`;
+- The summary should be a clear human-readable description: "When [trigger], if [conditions], then [actions]"
+- Use smart_conditions (AI-evaluated) when the user's rule requires UNDERSTANDING or JUDGMENT about email content that can't be captured by field matching. Examples: "if it looks like a meeting request", "unless it has a promo code", "if it needs my personal attention". Use regular conditions for exact field matching (domain, category, etc.). Smart conditions and regular conditions can be used together in the same workflow.`;
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -264,6 +329,7 @@ IMPORTANT — When to use recategorize vs reassign_category vs conditions:
     summary: string;
     trigger: { triggerType: string; config?: Record<string, unknown> };
     conditions?: { field: string; operator: string; value?: string }[];
+    smart_conditions?: { prompt: string }[];
     actions: { actionType: string; config?: Record<string, unknown> }[];
   };
 

@@ -91,7 +91,7 @@ export function TestRunDialog({
     } finally {
       setRunning(false);
     }
-  }, [selectedEmailId, workflowId, onStepsResolved]);
+  }, [selectedEmailId, workflowId, graph, onStepsResolved]);
 
   const resultIcon = (result: WorkflowExecutionStep['result']) => {
     switch (result) {
@@ -194,6 +194,11 @@ export function TestRunDialog({
                       <span className="font-medium capitalize">{step.nodeType}</span>
                       {step.detail && (
                         <span className="text-muted-foreground ml-1">— {step.detail}</span>
+                      )}
+                      {step.reasoning && (
+                        <p className="text-xs text-muted-foreground mt-0.5 italic">
+                          {step.reasoning}
+                        </p>
                       )}
                     </div>
                   </div>

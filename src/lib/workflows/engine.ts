@@ -19,6 +19,7 @@ import type {
   ActionNodeData,
   WorkflowConditionField,
 } from '@/types';
+import { evaluateSmartCondition } from './llm-condition';
 
 export interface EmailWithCategoryData extends Email {
   category?: string | null;
@@ -150,13 +151,16 @@ export async function executeWorkflow(
 
     if (node.type === 'condition') {
       const condData = node.data as ConditionNodeData;
-      const passed = evaluateCondition(condData, email);
+      const { passed, reasoning } = await evaluateCondition(condData, email);
 
       steps.push({
         nodeId: node.id,
         nodeType: 'condition',
         result: passed ? 'passed' : 'failed',
-        detail: `${condData.field} ${condData.operator} "${condData.value}" → ${passed ? 'Yes' : 'No'}`,
+        detail: condData.mode === 'smart'
+          ? `Smart: "${condData.prompt?.slice(0, 60) ?? ''}…" → ${passed ? 'Yes' : 'No'}`
+          : `${condData.field} ${condData.operator} "${condData.value}" → ${passed ? 'Yes' : 'No'}`,
+        reasoning,
         timestamp: new Date().toISOString(),
       });
 
@@ -186,7 +190,9 @@ export async function executeWorkflow(
             nodeId: skippedNode.id,
             nodeType: skippedNode.type,
             result: 'skipped',
-            detail: `Skipped (condition "${condData.field}" was ${passed ? 'true' : 'false'})`,
+            detail: condData.mode === 'smart'
+              ? `Skipped (smart condition was ${passed ? 'Yes' : 'No'})`
+              : `Skipped (condition "${condData.field}" was ${passed ? 'true' : 'false'})`,
             timestamp: new Date().toISOString(),
           });
           // Also skip all descendants
@@ -249,38 +255,52 @@ export async function executeWorkflow(
 
 /**
  * Evaluate a condition against email data.
+ * Smart conditions call Claude Haiku; field conditions are synchronous string matching.
  */
-function evaluateCondition(
+async function evaluateCondition(
   condition: ConditionNodeData,
   email: EmailWithCategoryData
-): boolean {
+): Promise<{ passed: boolean; reasoning?: string }> {
+  // Smart condition: delegate to LLM
+  if (condition.mode === 'smart' && condition.prompt) {
+    const result = await evaluateSmartCondition(
+      condition.prompt,
+      condition.contextFields,
+      email,
+    );
+    return { passed: result.result, reasoning: result.reasoning };
+  }
+
+  // Field-based condition: synchronous string matching
   const fieldValue = getFieldValue(condition.field, email);
   const { operator, value } = condition;
 
   // Boolean operators don't use value
-  if (operator === 'is_true') return fieldValue === 'true' || fieldValue === true;
-  if (operator === 'is_false') return fieldValue === 'false' || fieldValue === false || fieldValue === null || fieldValue === undefined;
+  if (operator === 'is_true') return { passed: fieldValue === 'true' || fieldValue === true };
+  if (operator === 'is_false') return { passed: fieldValue === 'false' || fieldValue === false || fieldValue === null || fieldValue === undefined };
 
   // Normalize to string for comparison
   const actual = String(fieldValue ?? '').toLowerCase();
   const expected = String(value ?? '').toLowerCase();
 
+  let passed = false;
   switch (operator) {
     case 'equals':
-      return actual === expected;
+      passed = actual === expected; break;
     case 'not_equals':
-      return actual !== expected;
+      passed = actual !== expected; break;
     case 'contains':
-      return actual.includes(expected);
+      passed = actual.includes(expected); break;
     case 'not_contains':
-      return !actual.includes(expected);
+      passed = !actual.includes(expected); break;
     case 'starts_with':
-      return actual.startsWith(expected);
+      passed = actual.startsWith(expected); break;
     case 'ends_with':
-      return actual.endsWith(expected);
+      passed = actual.endsWith(expected); break;
     default:
-      return false;
+      passed = false;
   }
+  return { passed };
 }
 
 /**

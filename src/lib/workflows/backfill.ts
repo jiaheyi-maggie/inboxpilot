@@ -17,6 +17,9 @@ import type {
 } from '@/types';
 import { partitionByGmailId } from '@/lib/email-utils';
 import type { EmailWithCategoryData } from './engine';
+import { evaluateSmartConditionBatch } from './llm-condition';
+
+const SMART_BACKFILL_LIMIT = 50;
 
 interface BackfillResult {
   processed: number;
@@ -55,7 +58,7 @@ export async function backfillWorkflow(
   if (!trigger) return { processed: 0, skipped: 0, failed: 0 };
 
   const triggerData = trigger.data as TriggerNodeData;
-  const { actions, conditions } = traceHappyPath(graph, trigger.id);
+  const { actions, conditions, hasSmartConditions } = traceHappyPath(graph, trigger.id);
 
   if (actions.length === 0) return { processed: 0, skipped: 0, failed: 0 };
 
@@ -137,24 +140,61 @@ export async function backfillWorkflow(
 
   if (filtered.length === 0) return { processed: 0, skipped: emailIds.length, failed: 0 };
 
-  // --- 5. Evaluate conditions in-memory, collect emails per action ---
+  // Cap emails when smart conditions are present (LLM calls are expensive)
+  if (hasSmartConditions) {
+    filtered = filtered.slice(0, SMART_BACKFILL_LIMIT);
+  }
+
+  // --- 5. Evaluate conditions, collect emails per action ---
+  const fieldConditions = conditions.filter((c) => c.mode !== 'smart');
+  const smartConditions = conditions.filter((c) => c.mode === 'smart');
   const actionGroups = new Map<WorkflowActionType, { emails: EmailWithCategoryData[]; config: Record<string, unknown> }>();
 
+  // First pass: filter by field conditions (synchronous, free)
   let skipped = 0;
-  for (const email of filtered) {
-    // Evaluate all conditions — if any fails, skip
-    let passed = true;
-    for (const cond of conditions) {
-      if (!evaluateConditionSimple(cond, email)) {
-        passed = false;
-        break;
+  let fieldFiltered = filtered;
+  if (fieldConditions.length > 0) {
+    fieldFiltered = [];
+    for (const email of filtered) {
+      let passed = true;
+      for (const cond of fieldConditions) {
+        if (!evaluateConditionSimple(cond, email)) {
+          passed = false;
+          break;
+        }
+      }
+      if (passed) {
+        fieldFiltered.push(email);
+      } else {
+        skipped++;
       }
     }
-    if (!passed) {
-      skipped++;
-      continue;
-    }
+  }
 
+  // Second pass: evaluate smart conditions in batches (async, calls LLM)
+  let smartFiltered = fieldFiltered;
+  if (smartConditions.length > 0) {
+    for (const cond of smartConditions) {
+      if (smartFiltered.length === 0) break;
+      // Evaluate in batches of 10 (matches evaluateSmartConditionBatch design)
+      const passed: EmailWithCategoryData[] = [];
+      for (let i = 0; i < smartFiltered.length; i += 10) {
+        const batch = smartFiltered.slice(i, i + 10);
+        const results = await evaluateSmartConditionBatch(cond.prompt!, cond.contextFields, batch);
+        for (const email of batch) {
+          const r = results.get(email.id);
+          if (r?.result) {
+            passed.push(email);
+          } else {
+            skipped++;
+          }
+        }
+      }
+      smartFiltered = passed;
+    }
+  }
+
+  for (const email of smartFiltered) {
     // Group by each action in the happy path
     for (const action of actions) {
       const key = action.actionType;
@@ -272,7 +312,7 @@ export async function backfillWorkflow(
 function traceHappyPath(
   graph: WorkflowGraph,
   triggerId: string,
-): { conditions: ConditionNodeData[]; actions: ActionNodeData[] } {
+): { conditions: ConditionNodeData[]; actions: ActionNodeData[]; hasSmartConditions: boolean } {
   const conditions: ConditionNodeData[] = [];
   const actions: ActionNodeData[] = [];
 
@@ -319,7 +359,8 @@ function traceHappyPath(
     }
   }
 
-  return { conditions, actions };
+  const hasSmartConditions = conditions.some((c) => c.mode === 'smart');
+  return { conditions, actions, hasSmartConditions };
 }
 
 /**
