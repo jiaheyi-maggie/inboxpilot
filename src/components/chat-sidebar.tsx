@@ -708,12 +708,12 @@ export function ChatSidebar({
         )}
         role="dialog"
         aria-modal="true"
-        aria-label="Chat with InboxPilot"
+        aria-label="Chat with Vorra"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <h2 className="text-sm font-semibold text-foreground">
-            Chat with InboxPilot
+            Chat with Vorra
           </h2>
           <Button variant="ghost" size="icon-xs" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -753,7 +753,7 @@ export function ChatSidebar({
                 </>
               ) : (
                 <>
-                  <p>Ask InboxPilot anything.</p>
+                  <p>Ask Vorra anything.</p>
                   <p className="text-xs">
                     Teach it about categories, execute commands, or create rules.
                   </p>

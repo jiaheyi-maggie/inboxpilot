@@ -110,7 +110,7 @@ export function CategoryTeachInput({
           setExpandedAndNotify(true);
         }}
         className="p-0.5 rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent transition-colors flex-shrink-0"
-        title="Teach InboxPilot about this category"
+        title="Teach Vorra about this category"
       >
         <GraduationCap className="h-3 w-3" />
       </button>
@@ -128,7 +128,7 @@ export function CategoryTeachInput({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Teach InboxPilot about this category..."
+        placeholder="Teach Vorra about this category..."
         maxLength={200}
         rows={2}
         disabled={saving}

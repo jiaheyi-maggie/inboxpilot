@@ -10,7 +10,7 @@ function getAnthropicClient(): Anthropic {
   return _anthropic;
 }
 
-const SYSTEM_PROMPT = `You are InboxPilot's AI assistant. Your job is to classify user messages into one of four intent types and respond with structured JSON.
+const SYSTEM_PROMPT = `You are Vorra's AI assistant. Your job is to classify user messages into one of four intent types and respond with structured JSON.
 
 ## Intent Types
 

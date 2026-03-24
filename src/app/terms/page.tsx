@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Terms of Service – InboxPilot',
+  title: 'Terms of Service – Vorra',
 };
 
 export default function TermsPage() {
@@ -23,7 +23,7 @@ export default function TermsPage() {
             Acceptance of Terms
           </h2>
           <p>
-            By using InboxPilot, you agree to these terms. If you do not agree,
+            By using Vorra, you agree to these terms. If you do not agree,
             do not use the service.
           </p>
         </div>
@@ -33,9 +33,9 @@ export default function TermsPage() {
             Description of Service
           </h2>
           <p>
-            InboxPilot is a web application that connects to your Gmail account
+            Vorra is a web application that connects to your Gmail account
             and uses AI to automatically categorize, organize, and help you
-            manage your email inbox. InboxPilot can read email metadata, perform
+            manage your email inbox. Vorra can read email metadata, perform
             organizational actions (archive, trash, star, mark read/unread,
             snooze), and send replies on your behalf when you explicitly
             initiate these actions.
@@ -64,7 +64,7 @@ export default function TermsPage() {
           <h2 className="font-semibold text-slate-900 mb-2">
             Permitted Use
           </h2>
-          <p>You agree to use InboxPilot only for lawful purposes. You may not:</p>
+          <p>You agree to use Vorra only for lawful purposes. You may not:</p>
           <ul className="list-disc ml-5 mt-2 space-y-1">
             <li>Attempt to gain unauthorized access to our systems</li>
             <li>Use the service to violate any applicable laws</li>
@@ -78,10 +78,10 @@ export default function TermsPage() {
           </h2>
           <p>
             Email categorization is performed by AI and may not always be
-            accurate. InboxPilot performs email actions (archive, trash, star,
+            accurate. Vorra performs email actions (archive, trash, star,
             snooze, send replies) only when you explicitly initiate them.
             AI-drafted replies are always shown for your review and editing
-            before sending — InboxPilot never sends emails automatically
+            before sending — Vorra never sends emails automatically
             without your confirmation.
           </p>
         </div>
@@ -91,7 +91,7 @@ export default function TermsPage() {
             Disclaimer of Warranties
           </h2>
           <p>
-            InboxPilot is provided &quot;as is&quot; without warranties of any
+            Vorra is provided &quot;as is&quot; without warranties of any
             kind. We do not guarantee uninterrupted or error-free operation.
           </p>
         </div>
@@ -101,7 +101,7 @@ export default function TermsPage() {
             Limitation of Liability
           </h2>
           <p>
-            To the maximum extent permitted by law, InboxPilot shall not be
+            To the maximum extent permitted by law, Vorra shall not be
             liable for any indirect, incidental, or consequential damages
             arising from your use of the service.
           </p>

@@ -1,4 +1,4 @@
-# InboxPilot
+# Vorra
 
 AI-powered Gmail inbox organizer. Syncs email via the Gmail API, categorizes with Claude Sonnet, and provides a Notion-style multi-view dashboard for navigating and managing your inbox.
 
@@ -6,7 +6,7 @@ AI-powered Gmail inbox organizer. Syncs email via the Gmail API, categorizes wit
 
 ## Getting Started
 
-Sign in with your Google account to authorize Gmail access, then click **Sync** to pull your inbox. InboxPilot will automatically categorize your emails using AI.
+Sign in with your Google account to authorize Gmail access, then click **Sync** to pull your inbox. Vorra will automatically categorize your emails using AI.
 
 > For developer setup (local dev, environment variables, database migrations, deployment), see [SETUP.md](SETUP.md).
 
@@ -16,7 +16,7 @@ Sign in with your Google account to authorize Gmail access, then click **Sync** 
 
 ### Gmail Sync and AI Categorization
 
-InboxPilot syncs Gmail via the `gmail.modify` scope and uses Claude Sonnet (`tool_use` for structured output) to assign each email a **category**, **topic**, and **importance score**.
+Vorra syncs Gmail via the `gmail.modify` scope and uses Claude Sonnet (`tool_use` for structured output) to assign each email a **category**, **topic**, and **importance score**.
 
 **5-level importance scoring**: critical / high / medium / low / noise
 

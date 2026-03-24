@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Privacy Policy – InboxPilot',
+  title: 'Privacy Policy – Vorra',
 };
 
 export default function PrivacyPage() {
@@ -23,8 +23,8 @@ export default function PrivacyPage() {
             What We Collect
           </h2>
           <p>
-            InboxPilot accesses your Gmail inbox via the Google Gmail API
-            using the <code>gmail.modify</code> scope. This allows InboxPilot
+            Vorra accesses your Gmail inbox via the Google Gmail API
+            using the <code>gmail.modify</code> scope. This allows Vorra
             to read email metadata and perform organizational actions on your
             behalf. We collect and store:
           </p>
@@ -114,7 +114,7 @@ export default function PrivacyPage() {
             Data Deletion
           </h2>
           <p>
-            You can revoke InboxPilot&apos;s access at any time from your{' '}
+            You can revoke Vorra&apos;s access at any time from your{' '}
             <a
               href="https://myaccount.google.com/permissions"
               className="text-blue-600 hover:underline"

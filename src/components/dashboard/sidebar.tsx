@@ -158,7 +158,7 @@ export function Sidebar({ rootNodes, loading, fetchError, onRetry, accounts, unr
       setSelectedEmailId(email.id);
       // Store unread email data for the detail view via a custom event
       window.dispatchEvent(
-        new CustomEvent('inboxpilot:unread-email-selected', { detail: emailWithCat })
+        new CustomEvent('vorra:unread-email-selected', { detail: emailWithCat })
       );
     },
     [setSelectedEmailId]

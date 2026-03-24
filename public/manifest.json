@@ -1,6 +1,6 @@
 {
-  "name": "InboxPilot",
-  "short_name": "InboxPilot",
+  "name": "Vorra",
+  "short_name": "Vorra",
   "description": "AI-powered email organization",
   "start_url": "/dashboard",
   "display": "standalone",

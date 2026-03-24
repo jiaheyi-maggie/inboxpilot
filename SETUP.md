@@ -1,4 +1,4 @@
-# InboxPilot — Setup Guide
+# Vorra — Setup Guide
 
 ## Prerequisites
 
@@ -17,13 +17,13 @@
 
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard)
 2. Click **New Project**
-3. Choose an organization, name the project (e.g. `inboxpilot`), set a database password, pick a region
+3. Choose an organization, name the project (e.g. `vorra`), set a database password, pick a region
 4. Wait for the project to finish provisioning
 
 ### Link to the codebase
 
 ```bash
-cd /path/to/inboxpilot
+cd /path/to/vorra
 supabase login
 supabase link --project-ref <YOUR_PROJECT_REF>
 ```
@@ -55,7 +55,7 @@ Alternatively, you can paste the contents of that file directly into the Supabas
 
 1. Go to **APIs & Services → OAuth consent screen**
 2. Choose **External** user type
-3. Fill in the app name (`InboxPilot`), support email, and developer email
+3. Fill in the app name (`Vorra`), support email, and developer email
 4. Under **Scopes**, add: `https://www.googleapis.com/auth/gmail.readonly`
 5. Add your email under **Test users** (required while in testing mode)
 6. Save
@@ -138,14 +138,14 @@ Open [http://localhost:3000](http://localhost:3000). You should see the landing 
 ### Push to GitHub (if not already done)
 
 ```bash
-gh repo create inboxpilot --public --source=. --push
+gh repo create vorra --public --source=. --push
 ```
 
 ### Deploy
 
 1. Go to [vercel.com](https://vercel.com) → Import your GitHub repo
 2. Set **all environment variables** from step 5 in Vercel → Settings → Environment Variables
-3. Update `NEXT_PUBLIC_APP_URL` to your Vercel deployment URL (e.g. `https://inboxpilot.vercel.app`)
+3. Update `NEXT_PUBLIC_APP_URL` to your Vercel deployment URL (e.g. `https://vorra.vercel.app`)
 4. Deploy
 
 ### Post-deploy: update OAuth redirect
@@ -153,7 +153,7 @@ gh repo create inboxpilot --public --source=. --push
 Add your Vercel URL to Google Cloud OAuth authorized redirect URIs:
 
 ```
-https://inboxpilot-azure.vercel.app/callback
+https://vorra-azure.vercel.app/callback
 ```
 
 ---

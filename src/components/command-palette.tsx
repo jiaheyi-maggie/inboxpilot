@@ -74,38 +74,38 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
 
   const handleSync = useCallback(() => {
     toast.info('Syncing emails...');
-    window.dispatchEvent(new Event('inboxpilot:sync-start'));
+    window.dispatchEvent(new Event('vorra:sync-start'));
     fetch('/api/sync', { method: 'POST' })
       .then((res) => {
         if (res.ok) {
-          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+          window.dispatchEvent(new Event('vorra:sync-complete'));
           toast.success('Sync complete');
         } else {
-          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+          window.dispatchEvent(new Event('vorra:sync-complete'));
           toast.error('Sync failed');
         }
       })
       .catch(() => {
-        window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+        window.dispatchEvent(new Event('vorra:sync-complete'));
         toast.error('Sync failed — network error');
       });
   }, []);
 
   const handleCategorize = useCallback(() => {
     toast.info('Categorizing emails...');
-    window.dispatchEvent(new Event('inboxpilot:sync-start'));
+    window.dispatchEvent(new Event('vorra:sync-start'));
     fetch('/api/categorize', { method: 'POST' })
       .then((res) => {
         if (res.ok) {
           toast.success('Categorization complete');
-          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+          window.dispatchEvent(new Event('vorra:sync-complete'));
         } else {
-          window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+          window.dispatchEvent(new Event('vorra:sync-complete'));
           toast.error('Categorization failed');
         }
       })
       .catch(() => {
-        window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+        window.dispatchEvent(new Event('vorra:sync-complete'));
         toast.error('Categorization failed — network error');
       });
   }, []);
@@ -113,7 +113,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
-        placeholder="Search, navigate, or ask InboxPilot..."
+        placeholder="Search, navigate, or ask Vorra..."
         value={query}
         onValueChange={setQuery}
       />
@@ -127,7 +127,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
                 className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
               >
                 <MessageSquare className="h-4 w-4" />
-                Ask InboxPilot: &quot;{query.trim()}&quot;
+                Ask Vorra: &quot;{query.trim()}&quot;
               </button>
             )}
           </div>
@@ -191,7 +191,7 @@ export function CommandPalette({ onOpenChat }: CommandPaletteProps) {
         {query.trim() && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Ask InboxPilot">
+            <CommandGroup heading="Ask Vorra">
               <CommandItem onSelect={handleSendToAI}>
                 <ArrowRight className="h-4 w-4" />
                 <span>

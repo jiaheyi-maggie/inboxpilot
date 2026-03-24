@@ -292,6 +292,32 @@ export interface SendReplyParams {
   subject: string;
   /** Plain text body of the reply */
   body: string;
+  /** Comma-separated CC recipients (optional) */
+  cc?: string;
+  /** Comma-separated BCC recipients (optional, stripped by Gmail from delivered copy) */
+  bcc?: string;
+}
+
+export interface SendForwardParams {
+  /** Recipient email address for the forwarded message */
+  to: string;
+  /** Subject line (should already include "Fwd: " prefix) */
+  subject: string;
+  /** Plain text body (user's note + forwarded content) */
+  body: string;
+  /** Comma-separated CC recipients (optional) */
+  cc?: string;
+  /** Comma-separated BCC recipients (optional) */
+  bcc?: string;
+}
+
+export interface EmailHeaders {
+  from: string | null;
+  to: string | null;
+  cc: string | null;
+  subject: string | null;
+  date: string | null;
+  messageId: string | null;
 }
 
 /**
@@ -311,6 +337,8 @@ export async function sendReply(
   // Build RFC 2822 MIME message
   const messageParts = [
     `To: ${sanitize(params.to)}`,
+    ...(params.cc ? [`Cc: ${sanitize(params.cc)}`] : []),
+    ...(params.bcc ? [`Bcc: ${sanitize(params.bcc)}`] : []),
     `Subject: ${sanitize(params.subject)}`,
     `In-Reply-To: ${sanitize(params.originalMessageId)}`,
     `References: ${sanitize(params.originalMessageId)}`,
@@ -397,4 +425,78 @@ function extractBodyParts(
 
 function decodeBase64Url(data: string): string {
   return Buffer.from(data, 'base64url').toString('utf-8');
+}
+
+// --- Send Forward ---
+
+/**
+ * Send a forwarded email via Gmail API.
+ * Unlike replies, forwards have no In-Reply-To/References headers and
+ * are sent as new conversations (no threadId).
+ */
+export async function sendForward(
+  account: GmailAccount,
+  params: SendForwardParams,
+): Promise<{ messageId: string }> {
+  const gmail = await getGmailClient(account);
+
+  const sanitize = (v: string) => v.replace(/[\r\n]/g, ' ').trim();
+
+  const messageParts = [
+    `To: ${sanitize(params.to)}`,
+    ...(params.cc ? [`Cc: ${sanitize(params.cc)}`] : []),
+    ...(params.bcc ? [`Bcc: ${sanitize(params.bcc)}`] : []),
+    `Subject: ${sanitize(params.subject)}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    `MIME-Version: 1.0`,
+    '',
+    params.body,
+  ];
+  const rawMessage = messageParts.join('\r\n');
+
+  const encoded = Buffer.from(rawMessage, 'utf-8').toString('base64url');
+
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encoded },
+  });
+
+  const sentMessageId = res.data.id;
+  if (!sentMessageId) {
+    throw new Error('Gmail send returned no message ID');
+  }
+
+  return { messageId: sentMessageId };
+}
+
+// --- Fetch Email Headers ---
+
+/**
+ * Fetch key headers (From, To, Cc, Subject, Date, Message-ID) from a Gmail
+ * message. Used to populate Reply All recipients and Forward metadata.
+ */
+export async function fetchEmailHeaders(
+  account: GmailAccount,
+  gmailMessageId: string,
+): Promise<EmailHeaders> {
+  const gmail = await getGmailClient(account);
+  const res = await gmail.users.messages.get({
+    userId: 'me',
+    id: gmailMessageId,
+    format: 'metadata',
+    metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date', 'Message-ID'],
+  });
+
+  const headers = res.data.payload?.headers ?? [];
+  const get = (name: string) =>
+    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? null;
+
+  return {
+    from: get('From'),
+    to: get('To'),
+    cc: get('Cc'),
+    subject: get('Subject'),
+    date: get('Date'),
+    messageId: get('Message-ID'),
+  };
 }

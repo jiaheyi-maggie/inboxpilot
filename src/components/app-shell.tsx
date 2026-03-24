@@ -48,7 +48,7 @@ export function AppShell({ userEmail, accounts, children }: AppShellProps) {
   const pathname = usePathname();
 
   const handleSyncComplete = useCallback(() => {
-    window.dispatchEvent(new Event('inboxpilot:sync-complete'));
+    window.dispatchEvent(new Event('vorra:sync-complete'));
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -67,8 +67,8 @@ export function AppShell({ userEmail, accounts, children }: AppShellProps) {
         <div className="flex items-center gap-4">
           {/* Logo + name */}
           <Link href="/dashboard" className="flex items-center gap-2">
-            <Image src="/logo.png" alt="InboxPilot" width={24} height={24} className="rounded" />
-            <span className="font-bold text-foreground">InboxPilot</span>
+            <Image src="/logo.png" alt="Vorra" width={24} height={24} className="rounded" />
+            <span className="font-bold text-foreground">Vorra</span>
           </Link>
 
           {/* Navigation */}

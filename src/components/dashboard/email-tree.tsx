@@ -279,7 +279,7 @@ export function EmailTree({ config, refreshKey, defaultViewMode = 'by_sender', v
   }, [fetchNodes, fetchSystemGroupEmails]);
 
   // Persist sidebar layout to localStorage
-  const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
+  const LAYOUT_KEY = 'vorra-sidebar-layout';
   const [savedLayout] = useState<Layout | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
     try {
@@ -471,7 +471,7 @@ export function EmailTree({ config, refreshKey, defaultViewMode = 'by_sender', v
       <div className="hidden lg:flex h-full">
         <ResizablePanelGroup
           orientation="horizontal"
-          id="inboxpilot-sidebar"
+          id="vorra-sidebar"
           onLayoutChanged={handleLayoutChanged}
           {...(savedLayout ? { defaultLayout: savedLayout } : {})}
         >

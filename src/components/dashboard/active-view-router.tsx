@@ -59,8 +59,8 @@ export function ActiveViewRouter({ accountColorMap, showAccountDot, accountDispl
       setUnreadEmail(detail);
       setSelectedEmail(detail);
     };
-    window.addEventListener('inboxpilot:unread-email-selected', handler);
-    return () => window.removeEventListener('inboxpilot:unread-email-selected', handler);
+    window.addEventListener('vorra:unread-email-selected', handler);
+    return () => window.removeEventListener('vorra:unread-email-selected', handler);
   }, []);
 
   // When selectedEmailId changes externally (e.g., cleared), sync

@@ -4,7 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'InboxPilot — AI Email Organization',
+  title: 'Vorra — AI Email Organization',
   description: 'Organize your inbox with AI-powered categorization and smart grouping',
   manifest: '/manifest.json',
   icons: {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'InboxPilot',
+    title: 'Vorra',
   },
 };
 

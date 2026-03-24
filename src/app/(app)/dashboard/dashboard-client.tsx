@@ -43,7 +43,7 @@ interface DashboardClientProps {
 // Declared at module scope to avoid recreating the array on every render.
 const VISIBLE_FIELDS = ['is_read', 'is_starred', 'subject', 'snippet'] as const;
 
-const LAYOUT_KEY = 'inboxpilot-sidebar-layout';
+const LAYOUT_KEY = 'vorra-sidebar-layout';
 
 export function DashboardClient({ viewConfig, account, accounts }: DashboardClientProps) {
   const autoSyncTriggered = useRef(false);
@@ -66,11 +66,11 @@ export function DashboardClient({ viewConfig, account, accounts }: DashboardClie
       isSyncingRef.current = false;
       setExternalRefreshKey((k) => k + 1);
     };
-    window.addEventListener('inboxpilot:sync-start', handleStart);
-    window.addEventListener('inboxpilot:sync-complete', handleComplete);
+    window.addEventListener('vorra:sync-start', handleStart);
+    window.addEventListener('vorra:sync-complete', handleComplete);
     return () => {
-      window.removeEventListener('inboxpilot:sync-start', handleStart);
-      window.removeEventListener('inboxpilot:sync-complete', handleComplete);
+      window.removeEventListener('vorra:sync-start', handleStart);
+      window.removeEventListener('vorra:sync-complete', handleComplete);
     };
   }, []);
 
@@ -396,7 +396,7 @@ function DashboardLayout({ accounts, isSyncingRef }: { accounts: AccountInfo[]; 
                 <MessageSquare className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Chat with InboxPilot</TooltipContent>
+            <TooltipContent>Chat with Vorra</TooltipContent>
           </Tooltip>
         </div>
         <ViewToolbar />
@@ -450,7 +450,7 @@ function DashboardLayout({ accounts, isSyncingRef }: { accounts: AccountInfo[]; 
         <div className="flex-1 min-w-0">
           <ResizablePanelGroup
             orientation="horizontal"
-            id="inboxpilot-sidebar"
+            id="vorra-sidebar"
             onLayoutChanged={handleLayoutChanged}
             {...(savedLayout ? { defaultLayout: savedLayout } : {})}
           >

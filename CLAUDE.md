@@ -1,4 +1,4 @@
-# InboxPilot
+# Vorra
 
 AI-powered Gmail inbox organizer. Syncs emails via Gmail API, categorizes with Claude Sonnet, and displays in a configurable tree view.
 

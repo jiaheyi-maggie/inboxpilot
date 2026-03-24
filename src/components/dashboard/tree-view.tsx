@@ -343,7 +343,7 @@ export function TreeView({
                     email={email}
                     onSelect={() => {
                       window.dispatchEvent(
-                        new CustomEvent('inboxpilot:unread-email-selected', { detail: email })
+                        new CustomEvent('vorra:unread-email-selected', { detail: email })
                       );
                     }}
                     onEmailMoved={onEmailMoved}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import { sendReply } from '@/lib/gmail/client';
+import { sendReply, sendForward, fetchEmailHeaders, fetchEmailBody } from '@/lib/gmail/client';
 import type { GmailAccount } from '@/types';
 
 // Lazy initialization to avoid crash if ANTHROPIC_API_KEY is missing at import time
@@ -11,27 +11,45 @@ function getAnthropicClient(): Anthropic {
   return _anthropic;
 }
 
+// Basic email format validation (permissive — just checks structure)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateEmailList(raw: unknown): string[] | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const list = raw
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (list.length === 0) return null;
+    for (const addr of list) {
+      if (!EMAIL_RE.test(addr)) return null;
+    }
+    return list;
+  }
+  if (Array.isArray(raw)) {
+    const list = raw.map((e) => String(e).trim()).filter(Boolean);
+    if (list.length === 0) return null;
+    for (const addr of list) {
+      if (!EMAIL_RE.test(addr)) return null;
+    }
+    return list;
+  }
+  return null;
+}
+
 /**
- * Fetch the original email's Gmail Message-ID header from the Gmail API.
- * This is the RFC 2822 Message-ID (e.g., "<abc@mail.gmail.com>"), NOT the
- * Gmail API resource ID. Required for In-Reply-To/References threading headers.
+ * Parse email addresses from a header value like:
+ * "Alice <alice@example.com>, Bob <bob@example.com>, charlie@example.com"
+ * Returns an array of bare email addresses (lowercased).
  */
-async function fetchOriginalMessageIdHeader(
-  account: GmailAccount,
-  gmailMessageId: string,
-): Promise<string | null> {
-  const { getGmailClient } = await import('@/lib/gmail/client');
-  const gmail = await getGmailClient(account);
-  const res = await gmail.users.messages.get({
-    userId: 'me',
-    id: gmailMessageId,
-    format: 'metadata',
-    metadataHeaders: ['Message-ID'],
-  });
-  const header = res.data.payload?.headers?.find(
-    (h) => h.name?.toLowerCase() === 'message-id',
-  );
-  return header?.value ?? null;
+function parseEmailAddresses(headerValue: string | null): string[] {
+  if (!headerValue) return [];
+  // Split on commas, then extract the email from each part
+  return headerValue.split(',').map((part) => {
+    const match = part.match(/<([^>]+)>/);
+    return (match ? match[1] : part).trim().toLowerCase();
+  }).filter((e) => EMAIL_RE.test(e));
 }
 
 export async function POST(
@@ -48,7 +66,17 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { action?: string; body?: string };
+  type RequestBody = {
+    action?: string;
+    body?: string;
+    replyAll?: boolean;
+    forward?: boolean;
+    forwardTo?: string;
+    cc?: string | string[];
+    bcc?: string | string[];
+  };
+
+  let body: RequestBody;
   try {
     body = await request.json();
   } catch {
@@ -98,7 +126,10 @@ export async function POST(
     );
   }
 
-  // --- DRAFT action: generate AI reply ---
+  const isForward = body.forward === true;
+  const isReplyAll = body.replyAll === true;
+
+  // --- DRAFT action: generate AI reply/forward draft ---
   if (action === 'draft') {
     // Fetch category + importance context
     const { data: catRow } = await serviceClient
@@ -119,7 +150,6 @@ export async function POST(
       categoryDescription = userCat?.description ?? null;
     }
 
-    // Build context for the AI
     const categoryContext = catRow?.category
       ? `- Category: ${catRow.category}${categoryDescription ? ` (${categoryDescription})` : ''}`
       : '';
@@ -131,11 +161,85 @@ export async function POST(
     const emailSnippet = (email.snippet as string) ?? '';
     const emailBodyText = (email.body_text as string | null) ?? emailSnippet;
 
-    // Use body text (truncated to ~3000 chars to keep prompt fast for Haiku)
     const truncatedBody = emailBodyText.length > 3000
       ? emailBodyText.slice(0, 3000) + '\n[...truncated]'
       : emailBodyText;
 
+    if (isForward) {
+      // Forward draft: just a brief note — the forwarded content is built client-side
+      const systemPrompt = `You are drafting a brief forwarding note for an email the user is forwarding to someone else.
+
+Context about this email:
+${categoryContext}
+${importanceContext}
+
+Guidelines:
+- Write a very brief 1-sentence note explaining why the user might be forwarding this email
+- Examples: "FYI — see below.", "Thought you'd find this interesting.", "Forwarding for your review."
+- If the email is clearly actionable, say something like "Can you take a look at this?"
+- Keep it under 15 words
+- Return ONLY the forwarding note text, no subject line, no headers, no markdown`;
+
+      try {
+        const response = await getAnthropicClient().messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 256,
+          system: systemPrompt,
+          messages: [
+            {
+              role: 'user',
+              content: `Subject: ${emailSubject}\n\n${truncatedBody}`,
+            },
+          ],
+        });
+
+        const textBlock = response.content.find((c) => c.type === 'text');
+        if (!textBlock || textBlock.type !== 'text') {
+          return NextResponse.json(
+            { error: 'AI returned no text response' },
+            { status: 502 },
+          );
+        }
+
+        // Also fetch the original email headers + body for the forwarded content block
+        let forwardedBlock = '';
+        try {
+          const headers = await fetchEmailHeaders(accountData, gmailMessageId);
+          // Prefer cached body_text from DB, fall back to Gmail API
+          let originalBody = (email.body_text as string | null);
+          if (!originalBody) {
+            const fetched = await fetchEmailBody(accountData, gmailMessageId);
+            originalBody = fetched.body_text;
+          }
+
+          forwardedBlock = [
+            '',
+            '---------- Forwarded message ----------',
+            headers.from ? `From: ${headers.from}` : null,
+            headers.date ? `Date: ${headers.date}` : null,
+            headers.subject ? `Subject: ${headers.subject}` : null,
+            headers.to ? `To: ${headers.to}` : null,
+            headers.cc ? `Cc: ${headers.cc}` : null,
+            '',
+            originalBody ?? emailSnippet ?? '',
+          ].filter((line) => line !== null).join('\n');
+        } catch (err) {
+          console.warn(`[reply] Failed to build forwarded block for ${emailId}:`, err);
+          forwardedBlock = `\n---------- Forwarded message ----------\nSubject: ${emailSubject}\n\n${emailSnippet ?? ''}`;
+        }
+
+        return NextResponse.json({
+          draft: textBlock.text.trim(),
+          forwardedContent: forwardedBlock,
+        });
+      } catch (err) {
+        console.error(`[reply] AI forward draft generation failed for ${emailId}:`, err);
+        const errMsg = err instanceof Error ? err.message : 'Draft generation failed';
+        return NextResponse.json({ error: errMsg }, { status: 502 });
+      }
+    }
+
+    // Regular reply / reply-all draft
     const systemPrompt = `You are drafting an email reply on behalf of the user.
 
 Context about this email:
@@ -174,7 +278,27 @@ Guidelines:
         );
       }
 
-      return NextResponse.json({ draft: textBlock.text.trim() });
+      // For reply-all, also return the recipients so the UI can display them
+      let replyAllRecipients: { to: string; cc: string } | undefined;
+      if (isReplyAll) {
+        try {
+          const headers = await fetchEmailHeaders(accountData, gmailMessageId);
+          const { to, cc } = buildReplyAllRecipients(
+            headers.from,
+            headers.to,
+            headers.cc,
+            accountData.email,
+          );
+          replyAllRecipients = { to, cc };
+        } catch (err) {
+          console.warn(`[reply] Failed to fetch reply-all recipients for ${emailId}:`, err);
+        }
+      }
+
+      return NextResponse.json({
+        draft: textBlock.text.trim(),
+        ...(replyAllRecipients ? { replyAllRecipients } : {}),
+      });
     } catch (err) {
       console.error(`[reply] AI draft generation failed for ${emailId}:`, err);
       const errMsg = err instanceof Error ? err.message : 'Draft generation failed';
@@ -182,54 +306,114 @@ Guidelines:
     }
   }
 
-  // --- SEND action: send the reply via Gmail ---
+  // --- SEND action: send the reply/forward via Gmail ---
   if (action === 'send') {
-    const replyBody = body.body;
-    if (!replyBody || typeof replyBody !== 'string' || replyBody.trim().length === 0) {
+    const sendBody = body.body;
+    if (!sendBody || typeof sendBody !== 'string' || sendBody.trim().length === 0) {
       return NextResponse.json(
-        { error: 'Reply body is required' },
+        { error: 'Message body is required' },
         { status: 400 },
       );
     }
-    if (replyBody.length > 50_000) {
+    if (sendBody.length > 50_000) {
       return NextResponse.json(
-        { error: 'Reply body too large (max 50,000 characters)' },
+        { error: 'Message body too large (max 50,000 characters)' },
         { status: 400 },
       );
     }
 
+    // Parse optional CC/BCC from the request
+    const ccList = validateEmailList(body.cc);
+    const bccList = validateEmailList(body.bcc);
+    const ccHeader = ccList ? ccList.join(', ') : undefined;
+    const bccHeader = bccList ? bccList.join(', ') : undefined;
+
+    // --- FORWARD ---
+    if (isForward) {
+      const forwardTo = body.forwardTo;
+      if (!forwardTo || typeof forwardTo !== 'string' || !EMAIL_RE.test(forwardTo.trim())) {
+        return NextResponse.json(
+          { error: 'A valid "forwardTo" email address is required for forwards.' },
+          { status: 400 },
+        );
+      }
+
+      const originalSubject = (email.subject as string) ?? '';
+      const fwdSubject = originalSubject.toLowerCase().startsWith('fwd:')
+        ? originalSubject
+        : `Fwd: ${originalSubject}`;
+
+      try {
+        const result = await sendForward(accountData, {
+          to: forwardTo.trim(),
+          subject: fwdSubject,
+          body: sendBody.trim(),
+          cc: ccHeader,
+          bcc: bccHeader,
+        });
+
+        return NextResponse.json({
+          success: true,
+          messageId: result.messageId,
+        });
+      } catch (err) {
+        console.error(`[reply] Gmail forward failed for ${emailId}:`, err);
+        const errMsg = err instanceof Error ? err.message : 'Failed to send forward';
+        return NextResponse.json({ error: errMsg }, { status: 502 });
+      }
+    }
+
+    // --- REPLY / REPLY ALL ---
     const senderEmail = email.sender_email as string | null;
     if (!senderEmail) {
       return NextResponse.json(
-        { error: 'Original sender email is missing -- cannot determine recipient.' },
+        { error: 'Original sender email is missing — cannot determine recipient.' },
         { status: 400 },
       );
     }
 
-    // Build the reply subject
     const originalSubject = (email.subject as string) ?? '';
     const replySubject = originalSubject.toLowerCase().startsWith('re:')
       ? originalSubject
       : `Re: ${originalSubject}`;
 
-    // Fetch the RFC 2822 Message-ID header for threading
-    let rfc2822MessageId: string;
+    // Fetch headers — needed for Message-ID (threading) and for Reply All recipients
+    let headers;
     try {
-      const headerValue = await fetchOriginalMessageIdHeader(accountData, gmailMessageId);
-      // Fall back to constructing one from the Gmail message ID if the header is missing
-      rfc2822MessageId = headerValue ?? `<${gmailMessageId}@mail.gmail.com>`;
+      headers = await fetchEmailHeaders(accountData, gmailMessageId);
     } catch (err) {
-      console.warn(`[reply] Failed to fetch Message-ID header for ${gmailMessageId}:`, err);
-      rfc2822MessageId = `<${gmailMessageId}@mail.gmail.com>`;
+      console.warn(`[reply] Failed to fetch headers for ${gmailMessageId}:`, err);
+      headers = null;
+    }
+
+    const rfc2822MessageId = headers?.messageId ?? `<${gmailMessageId}@mail.gmail.com>`;
+
+    // Determine To and CC for reply-all
+    let toAddress = senderEmail;
+    let replyCC = ccHeader;
+
+    if (isReplyAll) {
+      const { to, cc } = buildReplyAllRecipients(
+        headers?.from ?? null,
+        headers?.to ?? null,
+        headers?.cc ?? null,
+        accountData.email,
+      );
+      toAddress = to || senderEmail;
+      // Merge reply-all CC with any manually-added CC from the user
+      const allCC = [cc, ccHeader].filter(Boolean).join(', ');
+      replyCC = allCC || undefined;
     }
 
     try {
       const result = await sendReply(accountData, {
         originalMessageId: rfc2822MessageId,
         threadId: (email.thread_id as string | null) ?? null,
-        to: senderEmail,
+        to: toAddress,
         subject: replySubject,
-        body: replyBody.trim(),
+        body: sendBody.trim(),
+        cc: replyCC,
+        bcc: bccHeader,
       });
 
       return NextResponse.json({
@@ -245,4 +429,38 @@ Guidelines:
 
   // Should never reach here due to the action validation above
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+}
+
+/**
+ * Build Reply All recipients from the original email headers.
+ * - To: the original sender (From header)
+ * - CC: everyone on the original To + CC, excluding the user's own email
+ */
+function buildReplyAllRecipients(
+  from: string | null,
+  to: string | null,
+  cc: string | null,
+  userEmail: string,
+): { to: string; cc: string } {
+  const userAddr = userEmail.toLowerCase();
+
+  // Reply All "To" is the original sender
+  const fromAddresses = parseEmailAddresses(from);
+  const toAddress = fromAddresses[0] ?? userAddr;
+
+  // Gather all other recipients (original To + CC), excluding the user and the original sender
+  const excludeSet = new Set([userAddr, toAddress]);
+  const originalTo = parseEmailAddresses(to);
+  const originalCC = parseEmailAddresses(cc);
+  const allOthers = [...originalTo, ...originalCC].filter(
+    (addr) => !excludeSet.has(addr),
+  );
+
+  // Deduplicate
+  const uniqueCC = [...new Set(allOthers)];
+
+  return {
+    to: toAddress,
+    cc: uniqueCC.join(', '),
+  };
 }

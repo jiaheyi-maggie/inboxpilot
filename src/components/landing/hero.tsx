@@ -51,7 +51,10 @@ export function LandingHero({ error }: { error?: string }) {
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between">
-        <img src="/wordmark.svg" alt="InboxPilot" className="h-7" />
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="" width={24} height={24} className="rounded" />
+          <span className="font-bold text-slate-900">Vorra</span>
+        </div>
       </header>
 
       {/* Hero */}
@@ -63,7 +66,7 @@ export function LandingHero({ error }: { error?: string }) {
             organized by AI
           </h1>
           <p className="text-slate-500 text-base sm:text-lg">
-            InboxPilot automatically categorizes your emails and lets you browse
+            Vorra automatically categorizes your emails and lets you browse
             them like a file system. Group by category, sender, date — any way you
             want.
           </p>

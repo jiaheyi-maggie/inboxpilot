@@ -9,7 +9,7 @@ function getKey(): Buffer {
   if (_cachedKey) return _cachedKey;
   const secret = process.env.TOKEN_ENCRYPTION_KEY;
   if (!secret) throw new Error('TOKEN_ENCRYPTION_KEY is not set');
-  _cachedKey = scryptSync(secret, 'inboxpilot-salt', 32);
+  _cachedKey = scryptSync(secret, 'vorra-salt', 32);
   return _cachedKey;
 }
 

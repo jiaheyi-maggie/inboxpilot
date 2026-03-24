@@ -8,6 +8,7 @@ import {
   Check,
   Clock,
   ExternalLink,
+  Forward,
   Loader2,
   Mail,
   MailOpen,
@@ -15,6 +16,7 @@ import {
   Paperclip,
   RefreshCw,
   Reply,
+  ReplyAll,
   Send,
   Star,
   Trash2,
@@ -26,6 +28,7 @@ import {
   X,
   Zap,
   RotateCcw,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +46,11 @@ import { SnoozePicker } from './snooze-picker';
 import { QuickRuleDialog } from '@/components/workflows/quick-rule-dialog';
 import { showUndoToast } from '@/lib/undo-toast';
 import type { EmailWithCategory, EmailAction } from '@/types';
+
+type ComposeMode = 'reply' | 'reply-all' | 'forward';
+
+// Basic email validation for client-side checks
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface EmailDetailProps {
   email: EmailWithCategory;
@@ -62,15 +70,31 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
   const [showPicker, setShowPicker] = useState(false);
   const [showRuleDialog, setShowRuleDialog] = useState(false);
   const [showSnooze, setShowSnooze] = useState(false);
-  const [replyMode, setReplyMode] = useState(false);
-  const [replyDraft, setReplyDraft] = useState('');
-  const [replyLoading, setReplyLoading] = useState(false);
-  const [replySending, setReplySending] = useState(false);
-  const [replySent, setReplySent] = useState(false);
-  const replySendingRef = useRef(false); // synchronous guard against double-send
+
+  // Compose state
+  const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
+  const [composeDraft, setComposeDraft] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeSent, setComposeSent] = useState<ComposeMode | null>(null);
+  const composeSendingRef = useRef(false);
+  const composeTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Forward-specific state
+  const [forwardTo, setForwardTo] = useState('');
+  const [forwardedContent, setForwardedContent] = useState('');
+
+  // CC/BCC fields
+  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [ccField, setCcField] = useState('');
+  const [bccField, setBccField] = useState('');
+
+  // Reply-all recipients (populated from API)
+  const [replyAllTo, setReplyAllTo] = useState('');
+  const [replyAllCc, setReplyAllCc] = useState('');
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
-  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fullDate = email.received_at
     ? format(new Date(email.received_at), 'EEEE, MMMM d, yyyy \'at\' h:mm a')
@@ -120,7 +144,6 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
     const iframe = iframeRef.current;
     if (!iframe?.contentDocument?.body) return;
 
-    // Clean up previous observer
     observerRef.current?.disconnect();
 
     const body = iframe.contentDocument.body;
@@ -130,7 +153,6 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
 
     updateHeight();
 
-    // Handle late-loading images
     const imgs = body.querySelectorAll('img');
     imgs.forEach((img) => {
       if (!img.complete) {
@@ -139,7 +161,6 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
       }
     });
 
-    // Watch for any dynamic changes
     const observer = new ResizeObserver(updateHeight);
     observer.observe(body);
     observerRef.current = observer;
@@ -262,7 +283,6 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         toast.success(`Moved to ${category}`, {
           description: email.subject || '(no subject)',
         });
-        // Category change is structural — use dedicated callback to trigger tree refresh
         if (onCategoryChanged) {
           onCategoryChanged(email.id, category);
         } else {
@@ -277,128 +297,236 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
     [email.id, email.subject, onUpdated, onCategoryChanged]
   );
 
-  // --- Reply handlers ---
+  // --- Compose handlers ---
 
-  const fetchDraft = useCallback(async () => {
-    setReplyLoading(true);
-    setReplyDraft('');
+  const fetchDraft = useCallback(async (mode: ComposeMode) => {
+    setComposeLoading(true);
+    setComposeDraft('');
+    setForwardedContent('');
+    setReplyAllTo('');
+    setReplyAllCc('');
     try {
       const res = await fetch(`/api/emails/${email.id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'draft' }),
+        body: JSON.stringify({
+          action: 'draft',
+          forward: mode === 'forward',
+          replyAll: mode === 'reply-all',
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? 'Failed to generate draft');
       }
       const data = await res.json();
-      setReplyDraft(data.draft ?? '');
+      setComposeDraft(data.draft ?? '');
+
+      if (mode === 'forward' && data.forwardedContent) {
+        setForwardedContent(data.forwardedContent);
+      }
+
+      if (mode === 'reply-all' && data.replyAllRecipients) {
+        setReplyAllTo(data.replyAllRecipients.to ?? '');
+        setReplyAllCc(data.replyAllRecipients.cc ?? '');
+        // Pre-fill CC with reply-all recipients
+        if (data.replyAllRecipients.cc) {
+          setCcField(data.replyAllRecipients.cc);
+          setShowCcBcc(true);
+        }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to generate draft');
-      setReplyMode(false);
+      setComposeMode(null);
     } finally {
-      setReplyLoading(false);
+      setComposeLoading(false);
     }
   }, [email.id]);
 
-  const openReply = useCallback(() => {
-    if (replySent) return;
-    if (replyMode) {
-      // Already open — focus the textarea
-      replyTextareaRef.current?.focus();
+  const openCompose = useCallback((mode: ComposeMode) => {
+    if (composeSent) return;
+    if (composeMode === mode) {
+      composeTextareaRef.current?.focus();
       return;
     }
-    setReplyMode(true);
-    setReplySent(false);
-    fetchDraft();
-  }, [replyMode, replySent, fetchDraft]);
+    // Reset all compose state for new mode
+    setComposeMode(mode);
+    setComposeSent(null);
+    setForwardTo('');
+    setCcField('');
+    setBccField('');
+    setShowCcBcc(false);
+    fetchDraft(mode);
+  }, [composeMode, composeSent, fetchDraft]);
 
-  const discardReply = useCallback(() => {
-    setReplyMode(false);
-    setReplyDraft('');
-    setReplyLoading(false);
-    setReplySending(false);
+  const discardCompose = useCallback(() => {
+    setComposeMode(null);
+    setComposeDraft('');
+    setComposeLoading(false);
+    setComposeSending(false);
+    setForwardTo('');
+    setForwardedContent('');
+    setCcField('');
+    setBccField('');
+    setShowCcBcc(false);
+    setReplyAllTo('');
+    setReplyAllCc('');
   }, []);
 
-  const sendReply = useCallback(async () => {
-    if (replySendingRef.current) return; // synchronous guard against double Cmd+Enter
-    if (!replyDraft.trim()) {
-      toast.error('Reply body cannot be empty');
+  const sendMessage = useCallback(async () => {
+    if (composeSendingRef.current || !composeMode) return;
+
+    // Validate forward recipient
+    if (composeMode === 'forward') {
+      if (!forwardTo.trim()) {
+        toast.error('Enter a recipient email address');
+        return;
+      }
+      if (!EMAIL_RE.test(forwardTo.trim())) {
+        toast.error('Invalid recipient email address');
+        return;
+      }
+    }
+
+    // Validate CC/BCC if provided
+    if (ccField.trim()) {
+      const addrs = ccField.split(',').map((e) => e.trim()).filter(Boolean);
+      for (const addr of addrs) {
+        if (!EMAIL_RE.test(addr)) {
+          toast.error(`Invalid CC address: ${addr}`);
+          return;
+        }
+      }
+    }
+    if (bccField.trim()) {
+      const addrs = bccField.split(',').map((e) => e.trim()).filter(Boolean);
+      for (const addr of addrs) {
+        if (!EMAIL_RE.test(addr)) {
+          toast.error(`Invalid BCC address: ${addr}`);
+          return;
+        }
+      }
+    }
+
+    // For forward, combine user note with forwarded content
+    const messageBody = composeMode === 'forward'
+      ? (composeDraft.trim() + forwardedContent)
+      : composeDraft;
+
+    if (!messageBody.trim()) {
+      toast.error('Message body cannot be empty');
       return;
     }
-    replySendingRef.current = true;
-    setReplySending(true);
+
+    composeSendingRef.current = true;
+    setComposeSending(true);
     try {
+      const payload: Record<string, unknown> = {
+        action: 'send',
+        body: messageBody,
+      };
+
+      if (composeMode === 'forward') {
+        payload.forward = true;
+        payload.forwardTo = forwardTo.trim();
+      }
+      if (composeMode === 'reply-all') {
+        payload.replyAll = true;
+      }
+      if (ccField.trim()) {
+        payload.cc = ccField.trim();
+      }
+      if (bccField.trim()) {
+        payload.bcc = bccField.trim();
+      }
+
       const res = await fetch(`/api/emails/${email.id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', body: replyDraft }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? 'Failed to send reply');
+        throw new Error(data.error ?? 'Failed to send');
       }
-      toast.success('Reply sent', {
+
+      const labels: Record<ComposeMode, string> = {
+        reply: 'Reply sent',
+        'reply-all': 'Reply sent to all',
+        forward: 'Forwarded',
+      };
+
+      toast.success(labels[composeMode], {
         description: email.subject || '(no subject)',
       });
-      setReplyMode(false);
-      setReplyDraft('');
-      setReplySent(true);
+      const sentMode = composeMode;
+      setComposeMode(null);
+      setComposeDraft('');
+      setForwardTo('');
+      setForwardedContent('');
+      setCcField('');
+      setBccField('');
+      setShowCcBcc(false);
+      setComposeSent(sentMode);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send reply');
+      toast.error(err instanceof Error ? err.message : 'Failed to send');
     } finally {
-      replySendingRef.current = false;
-      setReplySending(false);
+      composeSendingRef.current = false;
+      setComposeSending(false);
     }
-  }, [email.id, email.subject, replyDraft]);
+  }, [composeMode, composeDraft, forwardTo, forwardedContent, ccField, bccField, email.id, email.subject]);
 
-  // Auto-focus and auto-resize the reply textarea when draft loads
+  // Auto-focus and auto-resize the compose textarea when draft loads
   useEffect(() => {
-    if (replyMode && !replyLoading && replyDraft && replyTextareaRef.current) {
-      replyTextareaRef.current.focus();
-      // Auto-resize to fit content
-      const ta = replyTextareaRef.current;
+    if (composeMode && !composeLoading && composeDraft && composeTextareaRef.current) {
+      composeTextareaRef.current.focus();
+      const ta = composeTextareaRef.current;
       ta.style.height = 'auto';
       ta.style.height = `${ta.scrollHeight}px`;
     }
-  }, [replyMode, replyLoading, replyDraft]);
+  }, [composeMode, composeLoading, composeDraft]);
 
   // Auto-resize on content change
-  const handleReplyChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setReplyDraft(e.target.value);
+  const handleComposeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setComposeDraft(e.target.value);
     e.target.style.height = 'auto';
     e.target.style.height = `${e.target.scrollHeight}px`;
   }, []);
 
-  // Reset reply state when email changes
+  // Reset compose state when email changes
   useEffect(() => {
-    setReplyMode(false);
-    setReplyDraft('');
-    setReplyLoading(false);
-    setReplySending(false);
-    setReplySent(false);
+    setComposeMode(null);
+    setComposeDraft('');
+    setComposeLoading(false);
+    setComposeSending(false);
+    setComposeSent(null);
+    setForwardTo('');
+    setForwardedContent('');
+    setCcField('');
+    setBccField('');
+    setShowCcBcc(false);
+    setReplyAllTo('');
+    setReplyAllCc('');
   }, [email.id]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't intercept when typing in an input/textarea (except our reply textarea for Cmd+Enter)
       const target = e.target as HTMLElement;
       const isInTextarea = target.tagName === 'TEXTAREA';
       const isInInput = target.tagName === 'INPUT' || target.isContentEditable;
 
-      // Cmd/Ctrl+Enter in the reply textarea → send
-      if (isInTextarea && (e.metaKey || e.ctrlKey) && e.key === 'Enter' && replyMode && !replySending) {
+      // Cmd/Ctrl+Enter in the compose textarea → send
+      if ((isInTextarea || isInInput) && (e.metaKey || e.ctrlKey) && e.key === 'Enter' && composeMode && !composeSending) {
         e.preventDefault();
-        sendReply();
+        sendMessage();
         return;
       }
 
-      // Escape → discard reply (works even when textarea is focused)
-      if (e.key === 'Escape' && replyMode) {
+      // Escape → discard compose (works even when textarea/input is focused)
+      if (e.key === 'Escape' && composeMode) {
         e.preventDefault();
-        discardReply();
+        discardCompose();
         return;
       }
 
@@ -408,13 +536,26 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
       // 'r' → open reply
       if (e.key === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        openReply();
+        openCompose('reply');
       }
     };
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [replyMode, replySending, sendReply, discardReply, openReply]);
+  }, [composeMode, composeSending, sendMessage, discardCompose, openCompose]);
+
+  // Compose section label/icon
+  const composeLabel = composeMode === 'forward'
+    ? `Forward`
+    : composeMode === 'reply-all'
+      ? `Reply all`
+      : `Reply to ${email.sender_name || email.sender_email || 'sender'}`;
+
+  const ComposeIcon = composeMode === 'forward'
+    ? Forward
+    : composeMode === 'reply-all'
+      ? ReplyAll
+      : Reply;
 
   // Prepare HTML for safe iframe rendering
   const iframeSrcDoc = bodyHtml ? prepareHtmlForIframe(bodyHtml) : null;
@@ -459,18 +600,49 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
                   }`}
                 />
               </Button>
+              {/* Reply button */}
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={openReply}
+                onClick={() => openCompose('reply')}
                 title="Reply (r)"
-                disabled={replySent}
+                disabled={!!composeSent}
               >
-                {replySent ? (
+                {composeSent === 'reply' ? (
                   <Check className="h-4 w-4 text-green-500" />
                 ) : (
                   <Reply className="h-4 w-4 text-muted-foreground" />
+                )}
+              </Button>
+              {/* Reply All button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => openCompose('reply-all')}
+                title="Reply All"
+                disabled={!!composeSent}
+              >
+                {composeSent === 'reply-all' ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <ReplyAll className="h-4 w-4 text-muted-foreground" />
+                )}
+              </Button>
+              {/* Forward button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => openCompose('forward')}
+                title="Forward"
+                disabled={!!composeSent}
+              >
+                {composeSent === 'forward' ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Forward className="h-4 w-4 text-muted-foreground" />
                 )}
               </Button>
               <Button
@@ -640,52 +812,122 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         )}
       </div>
 
-      {/* Reply section */}
-      {replyMode && (
+      {/* Compose section (Reply / Reply All / Forward) */}
+      {composeMode && (
         <div className="border-t border-border px-6 py-4 flex-shrink-0">
+          {/* Header */}
           <div className="flex items-center gap-2 mb-3">
-            <Reply className="h-4 w-4 text-muted-foreground" />
+            <ComposeIcon className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium text-foreground">
-              Reply to {email.sender_name || email.sender_email || 'sender'}
+              {composeLabel}
             </span>
+            {composeMode === 'reply-all' && replyAllTo && (
+              <span className="text-xs text-muted-foreground truncate ml-1">
+                to {replyAllTo}
+              </span>
+            )}
           </div>
-          {replyLoading ? (
+
+          {composeLoading ? (
             <div className="flex items-center gap-2 py-6 justify-center">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                Drafting reply...
+                {composeMode === 'forward' ? 'Preparing forward...' : 'Drafting reply...'}
               </span>
             </div>
           ) : (
             <>
+              {/* Forward To field */}
+              {composeMode === 'forward' && (
+                <div className="mb-2">
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">To</label>
+                  <input
+                    type="email"
+                    value={forwardTo}
+                    onChange={(e) => setForwardTo(e.target.value)}
+                    disabled={composeSending}
+                    className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder="recipient@example.com"
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {/* CC/BCC toggle and fields */}
+              {!showCcBcc ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2 transition-colors"
+                  onClick={() => setShowCcBcc(true)}
+                >
+                  <ChevronRight className="h-3 w-3" />
+                  CC / BCC
+                </button>
+              ) : (
+                <div className="mb-2 space-y-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">CC</label>
+                    <input
+                      type="text"
+                      value={ccField}
+                      onChange={(e) => setCcField(e.target.value)}
+                      disabled={composeSending}
+                      className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      placeholder="Comma-separated emails"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">BCC</label>
+                    <input
+                      type="text"
+                      value={bccField}
+                      onChange={(e) => setBccField(e.target.value)}
+                      disabled={composeSending}
+                      className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      placeholder="Comma-separated emails"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Message textarea */}
               <textarea
-                ref={replyTextareaRef}
-                value={replyDraft}
-                onChange={handleReplyChange}
-                disabled={replySending}
+                ref={composeTextareaRef}
+                value={composeDraft}
+                onChange={handleComposeChange}
+                disabled={composeSending}
                 className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-hidden"
-                placeholder="Write your reply..."
+                placeholder={composeMode === 'forward' ? 'Add a note...' : 'Write your reply...'}
               />
+
+              {/* Forwarded content preview (read-only) */}
+              {composeMode === 'forward' && forwardedContent && (
+                <pre className="mt-2 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap font-sans bg-muted/50 rounded-md border border-border max-h-40 overflow-auto">
+                  {forwardedContent}
+                </pre>
+              )}
+
+              {/* Action buttons */}
               <div className="flex items-center gap-2 mt-3">
                 <Button
                   size="sm"
                   className="gap-1.5"
-                  onClick={sendReply}
-                  disabled={replySending || !replyDraft.trim()}
+                  onClick={sendMessage}
+                  disabled={composeSending || (!composeDraft.trim() && composeMode !== 'forward')}
                 >
-                  {replySending ? (
+                  {composeSending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Send className="h-3.5 w-3.5" />
                   )}
-                  {replySending ? 'Sending...' : 'Send'}
+                  {composeSending ? 'Sending...' : composeMode === 'forward' ? 'Forward' : 'Send'}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="gap-1.5"
-                  onClick={discardReply}
-                  disabled={replySending}
+                  onClick={discardCompose}
+                  disabled={composeSending}
                 >
                   <X className="h-3.5 w-3.5" />
                   Discard
@@ -694,15 +936,15 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
                   variant="ghost"
                   size="sm"
                   className="gap-1.5 text-xs text-muted-foreground"
-                  onClick={fetchDraft}
-                  disabled={replySending || replyLoading}
+                  onClick={() => composeMode && fetchDraft(composeMode)}
+                  disabled={composeSending || composeLoading}
                   title="Regenerate draft"
                 >
                   <RefreshCw className="h-3 w-3" />
                   Regenerate
                 </Button>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
+                  {typeof navigator !== 'undefined' && navigator.platform?.includes('Mac') ? '\u2318' : 'Ctrl'}+Enter to send
                 </span>
               </div>
             </>
@@ -710,11 +952,13 @@ export function EmailDetail({ email, onBack, onRemoved, onUpdated, onCategoryCha
         </div>
       )}
 
-      {/* Replied indicator */}
-      {replySent && !replyMode && (
+      {/* Sent indicator */}
+      {composeSent && !composeMode && (
         <div className="border-t border-border px-6 py-3 flex-shrink-0 flex items-center gap-2">
           <Check className="h-4 w-4 text-green-500" />
-          <span className="text-sm text-green-600">Replied</span>
+          <span className="text-sm text-green-600">
+            {composeSent === 'forward' ? 'Forwarded' : composeSent === 'reply-all' ? 'Replied to all' : 'Replied'}
+          </span>
         </div>
       )}
 
